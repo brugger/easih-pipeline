@@ -1,6 +1,6 @@
 package EASIH::JMS;
 # 
-# JobManagementSystem for running simple pipelines on the HPC.
+# JobManagementSystem frame for running (simple) pipelines on the HPC.
 # 
 # 
 # Kim Brugger (23 Apr 2010), contact: kim.brugger@easih.ac.uk
@@ -13,16 +13,26 @@ my $max_jobs;
 my $save_state;
 my $last_save_state;
 my $update_job_array;
-my $verbosity;
+my $verbose;
 
 my @delete_files;
 my @inputs;
 my @jobs;
 my $cwd      = `pwd`;
 chomp($cwd);
+my $dry_run  = 0;
 
 
 
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub verbosity {
+  $verbose = shift || 0;
+}
 
 
 # 
@@ -56,9 +66,16 @@ sub submit_job {
   my ($cmd, $hpc_params) = @_;
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
+  if ( $dry_run ) {
+    print "echo 'cd $cwd; $cmd' |qsub $hpc_params \n";
+    return;
+  }
+
   open (my $qpipe, " | qsub $hpc_params -o q-logs > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $cwd; $cmd";
   close( $qpipe );
+
+  print "$cmd \n" if ( $verbose );
 
   open (my $tfile, $tmp_file) || die "Could not open '$tmp_file':$1\n";
   my $job_id;
@@ -79,8 +96,9 @@ sub submit_job {
 # 
 # Kim Brugger (22 Apr 2010)
 sub wait_jobs {
-  my (@job_ids) = @_;
-  
+
+  return if ( $dry_run );
+
   my %s2status = ( C =>  "Completed",
                    E =>  "Exiting",
 		   F =>  "Failed",
@@ -93,8 +111,7 @@ sub wait_jobs {
 
 
   my %job_hash;
-  map { $job_hash{ $_ }{ full_status } = "UNKNOWN"  } @job_ids;
-
+  map { $job_hash{ $_ }{ full_status } = "UNKNOWN"  } @jobs;
 
   my ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0, 0);
   while (1) {
@@ -111,24 +128,39 @@ sub wait_jobs {
       $queued++  if ($status eq 'Q');
       $running++ if ($status eq 'W');
       $failed++  if ($status eq 'F');
-      $other++   if ($status ne 'R' && $status ne 'W' && $status ne 'Q' && $status ne 'C');
+
+      $other++   if ($status ne 'R' && $status ne 'W' && 
+		     $status ne 'Q' && $status ne 'C' && $status ne 'F');
 
       $job_hash{ $job }{ status }      = $status;
       $job_hash{ $job }{ full_status } = $s2status{ $status };
     }
 
     print "Job tracking stats: D: $done, R: $running, Q: $queued, W: $waiting, F: $failed, O: $other\n";
-    last if ( $done+$failed == @job_ids);
+    last if ( $done+$failed == @jobs);
 
     sleep(10);
 
   }      
 
-  if ( $failed ) {
-    print STDERR "Failed on $failed job(s), will store current state and terminate run\n";
-  }
+  fail("Failed on $failed job(s), will store current state and terminate run\n")
+      if ( $failed );
 
+  @jobs = ();
   return;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub fail {
+  my ( $message ) = @_;
+
+  print STDERR "This is where I go to fail: $message\n";
+  exit;
+  
 }
 
 
@@ -189,7 +221,7 @@ sub tmp_file {
 # 
 # 
 # Kim Brugger (22 Apr 2010)
-sub delete_tmp_file {
+sub delete_tmp_files {
 
   system "rm @delete_files";
 }
@@ -262,6 +294,18 @@ sub fetch_n_reset_inputs {
 
 
 
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub dry_run {
+  my ( $start_logic_name ) = @_;
+
+  $dry_run = 1;
+  run_flow( $start_logic_name );
+  $dry_run = 0;
+}
+
 
 # 
 # 
@@ -275,7 +319,8 @@ sub run_flow {
 
   my ($current_logic_name, $next_logic_name) = ($start_logic_name, $main::flow{ $start_logic_name});
   while (1) {
-    
+
+    print "Running : $current_logic_name\n";
     if ( ! $main::analysis{$current_logic_name} ) {
       print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
     }
@@ -289,7 +334,7 @@ sub run_flow {
       &$function( $main::analysis{$current_logic_name}{ hpc_param }  );
     }
 
-    print "Going from $current_logic_name --> $next_logic_name\n";
+    print "Changing from $current_logic_name --> $next_logic_name\n";
     
     if ( ! $main::flow{ $next_logic_name}) {
       print "end of flow\n";
@@ -344,7 +389,7 @@ sub validate_flow {
   
 }
 
-
+1;
 
 
 
