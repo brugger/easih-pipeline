@@ -8,6 +8,8 @@ package EASIH::JMS;
 use strict;
 use warnings;
 use Data::Dumper;
+use Storable;
+
 
 my $max_jobs;
 my $save_state;
@@ -21,8 +23,6 @@ my @jobs;
 my $cwd      = `pwd`;
 chomp($cwd);
 my $dry_run  = 0;
-
-
 
 
 
@@ -388,6 +388,66 @@ sub validate_flow {
   print "end of flow\n";
   
 }
+
+
+
+# 
+# 
+# 
+# Kim Brugger (26 Apr 2010)
+sub store_state {
+  my ($filename ) = @_;
+
+  if ( ! $filename ) {
+    $0 =~ s/.*\///;
+    $filename = "$0.freeze";
+  }
+  
+  print "JMS :: Storing state in: '$filename'\n";
+
+  my $blob = {delete_files => \@delete_files,
+	      inputs       => \@inputs,
+	      jobs         => \@jobs,
+	      argv         => \@main::ARGV,
+	      flow         => \%main::flow,
+	      analysis     => \%main::analysis};
+
+  return Storable::store($blob, $filename);
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (26 Apr 2010)
+sub restore_state {
+  my ( $filename ) = @_;
+
+
+  if ( ! $filename ) {
+    $0 =~ s/.*\///;
+    $filename = "$0.freeze";
+  }
+  
+  print "JMS :: Re-storing state from: '$filename'\n";
+
+
+  my $blob = Storable::retrieve( $filename);
+
+
+  @delete_files   = @{$$blob{delete_files}};
+  @inputs         = @{$$blob{inputs}};
+  @jobs           = @{$$blob{jobs}};
+  @main::ARGV     = @{$$blob{argv}};
+  %main::flow     = %{$$blob{flow}};
+  %main::analysis = %{$$blob{analysis}};
+
+
+}
+
+
+
 
 1;
 
