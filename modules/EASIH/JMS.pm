@@ -9,14 +9,16 @@ use strict;
 use warnings;
 use Data::Dumper;
 use Storable;
+use File::Temp;
 
-my $save_interval  = 0;
-my $verbose        = 0;
-my $max_retry      = 0;
+my $save_interval  =  0;
+my $verbose        =  0;
+my $max_retry      =  0;
+my $pull_time      = 300;
 my $current_logic_name;
 
 my @delete_files;
-my @inputs;
+my @_inputs;
 my @prev_inputs;
 my @jobs;
 my $cwd      = `pwd`;
@@ -29,6 +31,15 @@ my $dry_run  = 0;
 # Kim Brugger (23 Apr 2010)
 sub verbosity {
   $verbose = shift || 0;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub pull_time {
+  $pull_time = shift || 60;
 }
 
 
@@ -246,10 +257,14 @@ sub wait_jobs {
 
     }
 
-    print "Job tracking stats: D: $done, R: $running, Q: $queued, W: $waiting, F: $failed, O: $other\n";
+    use POSIX 'strftime';
+    my $time = strftime('Today is %m/%d/%y: %H.%M:', localtime);
+
+
+    print "[$time]: D: $done, R: $running, Q: $queued, W: $waiting, F: $failed, O: $other\n";
     last if ( $done+$failed == $tracking_nr);
 
-    sleep(10);
+    sleep( $pull_time );
 
   }      
 
@@ -290,8 +305,8 @@ sub reset {
     }
   }
 
+  # Only look at the jobs we are currently tracking
   foreach my $job ( @jobs ) {
-    # Only look at the jobs we are currently tracking
     $$job{tracking} = 0  if ( $$job{failed} );
   }
 }
@@ -384,6 +399,42 @@ sub job_stats {
     
 #  print Dumper( \%res );
 
+  # it seems that qstat failed, revert to look at checkjob status as
+  # that is kept for two days, and not only 30 min.
+  if ( !  %res ) {
+
+    # I have not implemented this yet, as the two formats differ 
+    $res{job_state} = "L";
+
+
+    open (my $cjpipe, "checkjob -v -v $job_id 2> /dev/null | ") || die "Could not open 'cjtat-pipeline': $!\n";
+    my ( $id, $value);
+    while(<$cjpipe>) {
+      chomp;
+    RELOOP:
+#    print "$_ \n";
+      if ( /^(.*?): (.*?) (\w+:.*)/ || /^(.*?): (.*?)/) {
+	$id    = $1;
+	$value = $2;
+	$value =~ s/^\s+//;
+	$res{$id} = $value if ( $id && $value);
+	if ( $3) {
+	  $_ = $3;
+	  goto RELOOP;
+	}
+      }
+      elsif (/\t(.*)/) {
+	$value .= $1;
+      }
+    }
+    
+    
+  }
+    
+
+  die Dumper( \%res );
+
+
   $res{job_state} = "F" if ( $res{exit_status} && $res{exit_status} != 0);
 
   return $res{job_state}, \%res;
@@ -397,14 +448,29 @@ sub job_stats {
 # 
 # Kim Brugger (22 Apr 2010)
 sub tmp_file {
-  my ($postfix) = @_;
+  my ($postfix, $keep_file) = @_;
   $postfix ||= "";
+  $keep_file || 0;
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
-  push @delete_files, "$tmp_file$postfix";
+  push @delete_files, "$tmp_file$postfix" if (! $keep_file);
 
   return "$tmp_file$postfix";
 }
+
+
+
+# 
+# 
+# 
+# Kim Brugger (27 Apr 2010)
+sub tag_for_deletion {
+  my (@files) = @_;
+
+  push @delete_files, @files;
+  
+}
+
 
 
 
@@ -443,8 +509,8 @@ sub delete_tmp_files {
 # 
 # Kim Brugger (23 Apr 2010)
 sub push_input {
-  my ($input) = @_;
-  push @inputs, $input;
+  my (@inputs) = @_;
+  push @_inputs, @inputs;
 }
 
 
@@ -454,7 +520,7 @@ sub push_input {
 # Kim Brugger (23 Apr 2010)
 sub pop_input {
   my ($input) = @_;
-  return pop @inputs;
+  return pop @_inputs;
 }
 
 
@@ -463,7 +529,7 @@ sub pop_input {
 # 
 # Kim Brugger (23 Apr 2010)
 sub shift_input {
-  return pop @inputs;
+  return pop @_inputs;
 }
 
 
@@ -473,7 +539,7 @@ sub shift_input {
 # Kim Brugger (23 Apr 2010)
 sub unshift_input {
   my ($input) = @_;
-  unshift @inputs, $input;
+  unshift @_inputs, $input;
 }
 
 
@@ -482,8 +548,8 @@ sub unshift_input {
 # 
 # Kim Brugger (23 Apr 2010)
 sub reset_inputs {
-  @prev_inputs = @inputs;
-  @inputs = ();
+  @prev_inputs = @_inputs;
+  @_inputs = ();
 }
 
 # 
@@ -491,7 +557,7 @@ sub reset_inputs {
 # 
 # Kim Brugger (23 Apr 2010)
 sub fetch_inputs {
-  return @inputs;
+  return @_inputs;
 }
 
 # 
@@ -499,7 +565,7 @@ sub fetch_inputs {
 # 
 # Kim Brugger (23 Apr 2010)
 sub fetch_n_reset_inputs {
-  my @local_inputs = @inputs;
+  my @local_inputs = @_inputs;
   reset_inputs();
   return @local_inputs;
 }
@@ -538,12 +604,9 @@ sub run_flow {
       print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
     }
     else {
-      my $function = $main::analysis{$current_logic_name}{ function };
-      
-      if ( ! main->can( $function ) ){
-	print "ERROR :::: $current_logic_name points to $function, but this does not exist!\n";
-      }
-      $function = "main::$function";
+      my ($module, $function) = function_module($main::analysis{$current_logic_name}{ function });
+
+      $function = $module."::".$function;
       $main::analysis{$current_logic_name}{state} = "running";
       &$function( $main::analysis{$current_logic_name}{ hpc_param }  );
       $main::analysis{$current_logic_name}{state} = "done";
@@ -561,6 +624,48 @@ sub run_flow {
     }
   }
   
+}
+
+
+# Nicked the floowing two functions to Module::Loaded as they are not in perl-core for 5.8.X 
+sub is_loaded (*) { 
+    my $pm      = shift;
+    my $file    = __PACKAGE__->_pm_to_file( $pm ) or return;
+
+
+    return 1 if (exists $INC{$file} || $pm eq 'main');
+    
+    return 0;
+}
+
+
+sub _pm_to_file {
+    my $pkg = shift;
+    my $pm  = shift or return;
+    
+    my $file = join '/', split '::', $pm;
+    $file .= '.pm';
+    
+    return $file;
+}    
+
+
+
+# 
+# 
+# 
+# Kim Brugger (27 Apr 2010)
+sub function_module {
+  my ($function) = @_;
+  
+  my $module = 'main';
+    
+  ($module, $function) = ($1, $2) if ( $function =~ /(.*)::(\w+)/);
+  die   "ERROR :::: $module is not loaded!!!\n" if ( ! is_loaded( $module ));
+
+  print "ERROR :::: $current_logic_name points to $function, but this does not exist!\n" if ( ! $module->can( $function ) );
+
+  return ($module, $function);
 }
 
 
@@ -582,15 +687,11 @@ sub validate_flow {
       print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
     }
     else {
-      my $function = $main::analysis{$current_logic_name}{ function };
-
-      if ( ! main->can( $function ) ){
-	print "ERROR :::: $current_logic_name points to $function, but this does not exist!\n";
-      }
-
+      
+      my ($module, $function) = function_module($main::analysis{$current_logic_name}{ function });
     }
 
-    
+   
     if ( ! $main::flow{ $next_logic_name}) {
       print "No more steps in this flow...\n";
       last;
@@ -656,7 +757,7 @@ sub restore_state {
   my $blob = Storable::retrieve( $filename);
 
   @delete_files       = @{$$blob{delete_files}};
-  @inputs             = @{$$blob{inputs}};
+  @_inputs            = @{$$blob{inputs}};
   @jobs               = @{$$blob{jobs}};
 
   $save_interval      = $$blob{save_interval};
