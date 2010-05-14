@@ -10,17 +10,20 @@ use warnings;
 use Data::Dumper;
 use Storable;
 use File::Temp;
+use Time::HiRes;
 
-my $save_interval  =  0;
-my $verbose        =  0;
-my $max_retry      =  0;
-my $pull_time      = 300;
+my $last_save      = 300;
+my $save_interval  =   0;
+my $verbose        =   0;
+my $max_retry      =   0;
+my $pull_time      =  30;
 my $current_logic_name;
 
 my @delete_files;
 my @_inputs;
 my @prev_inputs;
-my @jobs;
+my @job_ids;
+my %job_hash;
 my $cwd      = `pwd`;
 chomp($cwd);
 my $dry_run  = 0;
@@ -44,11 +47,25 @@ sub pull_time {
 
 
 # 
-# 
+# -1 is never or only on crashes
 # 
 # Kim Brugger (23 Apr 2010)
 sub save_interval {
-  $save_interval = shift || 0;
+  $save_interval = shift || -1;
+}
+
+
+
+# 
+# Checks and see if the current state of the run should be stored
+# The inverval of this happening is set with save_interval
+#
+# Kim Brugger (04 May 2010)
+sub check_store_state {
+  
+  my $now = Time::HiRes::gettimeofday();
+  store_state() if ( $now - $last_save > $save_interval );
+  
 }
 
 
@@ -77,10 +94,12 @@ sub cwd {
 # 
 # Kim Brugger (23 Apr 2010)
 sub submit_jobs {
-  my ($cmds, $hpc_params) = @_;
+  my ($cmds, $hpc_params, $inputs) = @_;
 
-  foreach my $cmd (@$cmds) {
-    submit_job( $cmd, $hpc_params);
+  for (my $i = 0; $i < @$cmds; $i++ ) {
+    my $cmd   = $$cmds[ $i ];
+    my $input = $$inputs[ $i ] || "";
+    submit_job( $cmd, $hpc_params, $input);
   }
 }
 
@@ -90,12 +109,9 @@ sub submit_jobs {
 # 
 # Kim Brugger (23 Apr 2010)
 sub submit_n_wait_jobs {
-  my ($cmds, $hpc_params) = @_;
+  my ($cmds, $hpc_params, $inputs) = @_;
 
-  foreach my $cmd (@$cmds) {
-    submit_job( $cmd, $hpc_params);
-  }
-
+  submit_jobs( $cmds, $hpc_params, $inputs);
   wait_jobs( );
 }
 
@@ -104,9 +120,9 @@ sub submit_n_wait_jobs {
 # 
 # Kim Brugger (23 Apr 2010)
 sub submit_n_wait_job {
-  my ($cmd, $hpc_params) = @_;
+  my ($cmd, $hpc_params, $input) = @_;
 
-  submit_job( $cmd, $hpc_params);
+  submit_job( $cmd, $hpc_params, $input);
   wait_jobs( );
 }
 
@@ -116,7 +132,7 @@ sub submit_n_wait_job {
 # 
 # Kim Brugger (22 Apr 2010)
 sub submit_job {
-  my ($cmd, $hpc_params) = @_;
+  my ($cmd, $hpc_params, $input) = @_;
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
   if ( $dry_run ) {
@@ -144,12 +160,14 @@ sub submit_job {
   system "rm $tmp_file";    
 
 
-  push @jobs, {job_id      => $job_id, 
-	       full_status => 'SUBMITTED',
-	       tracking    => 1,
-	       command     => $cmd,
-	       hpc_params  => $hpc_params,
-	       logic_name  => $current_logic_name};
+  $job_hash{ $job_id }  = {full_status => 'SUBMITTED',
+			   tracking    => 1,
+			   command     => $cmd,
+			   hpc_params  => $hpc_params,
+			   input       => $input,
+			   logic_name  => $current_logic_name};
+
+  push @job_ids, $job_id;
 }
 
 
@@ -159,12 +177,16 @@ sub submit_job {
 # 
 # Kim Brugger (26 Apr 2010)
 sub resubmit_job {
-  my ( $job_ref ) = @_;
+  my ( $job_id ) = @_;
+
+  my $job_ref = $job_hash{ $job_id };
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
+  my $logic_name = $$job_ref{logic_name};
+
   if ( $dry_run ) {
-    print "echo 'cd $cwd; $$job_ref{cmd}' |qsub $$job_ref{hpc_params} \n";
+    print "echo 'cd $cwd; $$job_ref{cmd}' |qsub $main::analysis{$logic_name}{ hpc_param } \n";
     return;
   }
 
@@ -175,21 +197,23 @@ sub resubmit_job {
   print "$$job_ref{cmd} \n" if ( $verbose );
 
   open (my $tfile, $tmp_file) || die "Could not open '$tmp_file':$1\n";
-  my $job_id;
+  my $new_job_id;
   while(<$tfile>) {
     chomp;
-    $job_id = $_;
+    $new_job_id = $_;
   }
   close ($tfile);
   system "rm $tmp_file";    
 
-  $job_id =~ s/(\d+?)\..*/$1/;
+  $new_job_id =~ s/(\d+?)\..*/$1/;
 
-  push @jobs, {job_id      => $job_id, 
-	       full_status => 'RESUBMITTED',
-	       tracking    => 1};
- 
-
+  $job_hash{ $job_id }{ full_status }  = 'RESUBMITTED';
+  $job_hash{ $job_id }{ tracking }     = 0;
+  
+  $job_hash{ $new_job_id } = $job_hash{ $job_id };
+  $job_hash{ $new_job_id }{ tracking } = 1;
+  
+  push @job_ids, $job_id;
 }
 
 
@@ -212,24 +236,17 @@ sub wait_jobs {
                    W =>  "Waiting",
                    S =>  "Suspend" );
 
-  my ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0, 0);
+  my ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0,0);
   while (1) {
     
-    ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0, 0);
+    ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0,0);
     my $tracking_nr = 0;
-    foreach my $job ( @jobs ) {
+    foreach my $job_id ( @job_ids ) {
       
       # Only look at the jobs we are currently tracking
-      next if ( ! $$job{tracking} );
+      next if ( ! $job_hash{ $job_id }{ tracking } );
       $tracking_nr++;
-      my ($status, $status_hash) = job_stats( $$job{ job_id } );
-
-#      print "STATUS '$status' $$job{ job_id }\n";
-#      print Dumper( $status_hash);
-
-      $$job{ status }      = $status;
-      $$job{ full_status } = $s2status{ $status };
-      $$job{ hpc_stats }   = $status_hash;
+      my $status = job_stats( $job_id );
 
       # this should be done with switch, but as we are not on perl 5.10+ this is how it is done...
       if ($status eq 'C'){
@@ -246,32 +263,35 @@ sub wait_jobs {
       }
       elsif ($status eq 'F') {
 	$failed++;
-	$$job{ failed }++;
-	if ( $$job{ failed } < $max_retry ) {	  
-	  resubmit_job( $job );
+	$job_hash{ $job_id }{ failed }++;
+	if ( $job_hash{ $job_id } < $max_retry ) {	  
+	  resubmit_job( $job_id );
 	}
       }
       else {
 	$other++;
       }
-
+      
     }
 
     use POSIX 'strftime';
     my $time = strftime('Today is %m/%d/%y: %H.%M:', localtime);
-
 
     print "[$time]: D: $done, R: $running, Q: $queued, W: $waiting, F: $failed, O: $other\n";
     last if ( $done+$failed == $tracking_nr);
 
     sleep( $pull_time );
 
+    check_store_state();
   }      
 
-  fail("Failed on $failed job(s), will store current state and terminate run\n")
-      if ( $failed );
+  if ( $failed ) {
+    $main::analysis{ $current_logic_name }{state} = 'failed';
+    fail("Failed on $failed job(s), will store current state and terminate run\n");
+  }
 
   unset_tracking();
+  @job_ids = ();
   return;
 }
 
@@ -283,8 +303,8 @@ sub wait_jobs {
 # Kim Brugger (26 Apr 2010)
 sub unset_tracking {
 
-  foreach my $job ( @jobs ) {
-    $$job{tracking}  = 0;
+  foreach my $job_id ( @job_ids ) {
+    $job_hash{ $job_id }{tracking}  = 0;
   }
 
 
@@ -306,8 +326,8 @@ sub reset {
   }
 
   # Only look at the jobs we are currently tracking
-  foreach my $job ( @jobs ) {
-    $$job{tracking} = 0  if ( $$job{failed} );
+  foreach my $job_id ( @job_ids ) {
+    $job_hash{ $job_id }{tracking} = 0  if ( $job_hash{ $job_id }{failed} );
   }
 }
 
@@ -321,7 +341,8 @@ sub print_HPC_usage {
 
   my %summed = ();
 
-  foreach my $job ( @jobs ) {
+  foreach my $job_id ( @job_ids ) {
+    my $job = $job_hash{ $job_id };
     my( $hours, $mins, $secs ) = split(":", $$job{ hpc_stats }{ 'resources_used.walltime' });
     $summed{ $$job{ logic_name } }{ walltime } += 3600*$hours + 60*$mins + $secs;
     $$job{ hpc_stats }{ 'resources_used.mem' } =~ s/kb//;
@@ -380,6 +401,9 @@ sub fail {
 sub job_stats {
   my ($job_id)  = @_;
 
+  # the job is completed, and we loose the information after 30 mins.
+  return "C" if ($job_hash{ $job_id }{ status } &&  $job_hash{ $job_id }{ status } eq 'C');
+
   my %res;
   open (my $qspipe, "qstat -f $job_id 2> /dev/null | ") || die "Could not open 'qstat-pipeline': $!\n";
   my ( $id, $value);
@@ -427,18 +451,14 @@ sub job_stats {
 	$value .= $1;
       }
     }
-    
-    
   }
     
-
-  die Dumper( \%res );
-
-
   $res{job_state} = "F" if ( $res{exit_status} && $res{exit_status} != 0);
 
-  return $res{job_state}, \%res;
-  
+  $job_hash{$job_id}{ hpc_stats } = \%res;
+  $job_hash{$job_id}{ status } = $res{job_state};
+
+  return $job_hash{$job_id}{ status };
 }
 
 
@@ -481,11 +501,11 @@ sub tag_for_deletion {
 sub delete_hpc_logs {
   
   my @files;
-  foreach my $job ( @jobs ) {
+  foreach my $job_id ( @job_ids ) {
     
-    my ($host, $path) = split(":", $$job{ hpc_stats }{Error_Path});
+    my ($host, $path) = split(":", $job_hash{$job_id}{ hpc_stats }{Error_Path});
     push @files, $path if ( -f $path);
-    ($host, $path) = split(":", $$job{ hpc_stats }{Output_Path});
+    ($host, $path) = split(":", $job_hash{$job_id}{ hpc_stats }{Output_Path});
     push @files, $path if ( -f $path);
 
   }    
@@ -585,6 +605,8 @@ sub dry_run {
 }
 
 
+
+
 # 
 # 
 # 
@@ -599,17 +621,34 @@ sub run_flow {
   my $next_logic_name   = $main::flow{ $current_logic_name};
   while (1) {
 
+    check_store_state();
+
     print "Running : $current_logic_name\n";
     if ( ! $main::analysis{$current_logic_name} ) {
       print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
     }
     else {
-      my ($module, $function) = function_module($main::analysis{$current_logic_name}{ function });
+      
+      # there is a set of old job_ids lying around. Check and see if they are finished. 
+      # If untrackable resubmit them.
+      if ( @job_ids ) { 
+	foreach my $job_id ( @job_ids ) {
+	  my $state = job_stats( $job_id );
+	  if ($state eq 'F' ) {
+	    resubmit_job( $job_id );
+	  }
+	}
+	wait_jobs();
+      }
+      else {
 
-      $function = $module."::".$function;
-      $main::analysis{$current_logic_name}{state} = "running";
-      &$function( $main::analysis{$current_logic_name}{ hpc_param }  );
-      $main::analysis{$current_logic_name}{state} = "done";
+	my ($module, $function) = function_module($main::analysis{$current_logic_name}{ function });
+	
+	$function = $module."::".$function;
+	$main::analysis{$current_logic_name}{state} = "running";
+	&$function( $main::analysis{$current_logic_name}{ hpc_param }  );
+	$main::analysis{$current_logic_name}{state} = "done";
+      }
     }
 
     print "Changing from $current_logic_name --> $next_logic_name\n";
@@ -627,7 +666,8 @@ sub run_flow {
 }
 
 
-# Nicked the floowing two functions to Module::Loaded as they are not in perl-core for 5.8.X 
+# Nicked the following two functions from Module::Loaded as they are
+# not in perl-core for 5.8.X and I needed a special version of them
 sub is_loaded (*) { 
     my $pm      = shift;
     my $file    = __PACKAGE__->_pm_to_file( $pm ) or return;
@@ -715,6 +755,8 @@ sub validate_flow {
 sub store_state {
   my ($filename ) = @_;
 
+  return if ( $dry_run);
+
   if ( ! $filename ) {
     $0 =~ s/.*\///;
     $filename = "$0.freeze";
@@ -724,7 +766,8 @@ sub store_state {
 
   my $blob = {delete_files       => \@delete_files,
 	      inputs             => \@prev_inputs,
-	      jobs               => \@jobs,
+	      job_ids            => \@job_ids,
+	      job_hash           => \%job_hash,
 	      save_interval      => $save_interval,
 	      verbose            => $verbose,
 	      current_logic_name => $current_logic_name,
@@ -733,6 +776,8 @@ sub store_state {
 	      argv               => \@main::ARGV,
 	      flow               => \%main::flow,
 	      analysis           => \%main::analysis};
+
+  $last_save = Time::HiRes::gettimeofday();
 
   return Storable::store($blob, $filename);
 }
@@ -758,7 +803,8 @@ sub restore_state {
 
   @delete_files       = @{$$blob{delete_files}};
   @_inputs            = @{$$blob{inputs}};
-  @jobs               = @{$$blob{jobs}};
+  @job_ids            = @{$$blob{job_ids}};
+  %job_hash           = %{$$blob{job_hash}};
 
   $save_interval      = $$blob{save_interval};
   $verbose            = $$blob{verbose};
@@ -771,7 +817,7 @@ sub restore_state {
 
 
 sub catch_ctrl_c {
-    $main::SIG{INT} = \&catch_ctrl_c;           # See ``Writing A Signal Handler''
+    $main::SIG{INT} = \&catch_ctrl_c;
     fail("Caught a ctrl-c\n");
 }
 
