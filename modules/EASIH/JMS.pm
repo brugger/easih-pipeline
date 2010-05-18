@@ -426,6 +426,7 @@ sub run {
         run_analysis( $start_logic_name );
 	$running++;
       }
+      @start_logic_names = ();
     }
     else {
       
@@ -445,18 +446,24 @@ sub run {
 
           # all threads for this run has to finish before we can 
           # proceed.
-          if ( $main::analysis{ $logic_name }{ sync } ) {
+          if ( $main::analysis{ $next_logic_name }{ sync } ) {
             
             my @lactive = fetch_active_jobs( $logic_name );
             my @inputs;
+	    my $all_threads_done = 1;
             foreach my $ljms_id ( @lactive ) {
-              next if ( ! $jms_hash{ $ljms_id }{ done } );
+              if ( ! $jms_hash{ $ljms_id }{ done } ) {
+		$all_threads_done = 0;
+		last;
+	      }
               push @inputs, $main::analysis{ $logic_name }{ output };
             }
 	    
-	    print " $jms_id :: synced and $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n";
-            run_analysis( $next_logic_name, @inputs);
-            $started++;
+	    if ( $all_threads_done ) {
+	      print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) \n";
+	      run_analysis( $next_logic_name, @inputs);
+	      $started++;
+	    }
             
           }
           else {
