@@ -10,7 +10,8 @@ use warnings;
 #@ISA = qw(EASIH::JMS::Hive);
 
 
-my $executer = "/home/kb468/projects/easih-flow/scripts/dummies/qstat.pl";
+#my $executer = "/home/kb468/projects/easih-flow/scripts/dummies/qstat.pl";
+my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/qstat.pl";
 
 
 # 

@@ -14,25 +14,32 @@ use Time::HiRes;
 
 use EASIH::JMS::Hive;
 
-my $last_save      = 300;
-my $save_interval  =   0;
+my $last_save      =   0;
+my $save_interval  = 300;
 my $verbose        =   0;
 my $max_retry      =   3;
 my $sleep_time     =  10;
 my $current_logic_name;
-my $use_storing    =  0; # debugging purposes
-
+my $use_storing    =  1; # debugging purposes
+my $max_jobs       = -1; # to control that we do not flood Darwin, or if local, block the machine
+my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
 my $hive           = "DetachedDummy";
 
 my @delete_files;
 my %jms_hash;
 my @jms_ids;
+
+my @retained_jobs;
+my %analysis_order;
+
+my $job_counter = 1; # This is for generating internal jms_id (JobManamentSystem_Id)
+
 my $cwd      = `pwd`;
+
 chomp($cwd);
 my $dry_run  = 0;
 
-my $job_counter = 1;
 
 our $FINISHED    =    1;
 our $FAILED      =    2;
@@ -177,7 +184,6 @@ sub resubmit_job {
     return;
   }
 
-
   my $submit_job = "EASIH::JMS::Hive::".$hive."::submit_job";
   no strict 'refs';
   my $job_id = &$submit_job( $$instance{ cmd }, $main::analysis{$logic_name}{ hpc_param });
@@ -188,6 +194,55 @@ sub resubmit_job {
 
 }
 
+
+
+
+# 
+# Simple report, so we can track progress.
+# 
+# Kim Brugger (18 May 2010)
+sub job_report {
+  my ( $full ) = @_;
+
+  my %res = ();
+
+  my ( $done, $running, $other, $failed) = (0,0,0,0);
+  
+
+  foreach my $jms_id ( @jms_ids ) {
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+
+    $res{ $logic_name }{ $status }++;
+
+    $failed += ($jms_hash{ $jms_id }{ failed } || 0);
+    
+  }
+
+  my $report;
+#  $report .= "Analysis: Finished/Running/Other/Failed\n";
+  
+  foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
+    
+    $report .= "$logic_name: ";
+    $report .= ($res{ $logic_name }{ $FINISHED } || 0) . "/";
+    $done += ($res{ $logic_name }{ $FINISHED } || 0);
+    $report .= ($res{ $logic_name }{ $RUNNING  } || 0) . "/";
+    $running += ($res{ $logic_name }{ $RUNNING } || 0);
+    my $sub_other = ($res{ $logic_name }{ $QUEUEING  } || 0);
+    $sub_other += ($res{ $logic_name }{ $RESUBMITTED  } || 0);
+    $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
+    $other += $sub_other;
+    $report .= "$sub_other/". ($res{ $logic_name }{ $FAILED  } || 0). "\n";
+  }
+
+  use POSIX 'strftime';
+  my $time = strftime('%m/%d/%y: %H.%M:', localtime);
+  
+
+
+  return "[$time]:\n$report"."Global: D: $done, R: $running, O: $other, F: $failed\n";
+}
 
 
 # 
@@ -236,11 +291,6 @@ sub check_jobs {
     }
     
   }
-
-  use POSIX 'strftime';
-  my $time = strftime('Today is %m/%d/%y: %H.%M:', localtime);
-  
-  print "[$time]: D: $done, R: $running, Q: $queued, W: $waiting, F: $failed, O: $other\n";
 
   return;
 }
@@ -407,25 +457,28 @@ sub fetch_active_jobs {
 
 
 # 
-# 
+# Main loop that does all the work.
 # 
 # Kim Brugger (18 May 2010)
 sub run {
   my (@start_logic_names) = @_;
 
-  my ( $done, $running, $started, $no_restart) = (0,0,0, 0);
   while (1) {
 
     check_n_store_state();
+    my ( $done, $running, $started, $no_restart) = (0,0,0, 0);
 
     my @active_jobs = fetch_active_jobs();
     
     # nothing running, start from the start_logic_names
     if ( ! @active_jobs ) {
       foreach my $start_logic_name ( @start_logic_names ) {
+	$analysis_order{ $start_logic_name } = 1;
         run_analysis( $start_logic_name );
 	$running++;
       }
+      # set this variable to null so we dont end here again. 
+      # This could also be done with a flag, but for now here we are.
       @start_logic_names = ();
     }
     else {
@@ -437,7 +490,9 @@ sub run {
         if ( $jms_hash{ $jms_id }{ status } == $FINISHED ) {
 	  
 	  $jms_hash{ $jms_id }{ tracking } = 0;	  
-          my $next_logic_name = next_analysis( $jms_hash{ $jms_id }{ logic_name } );
+          my $next_logic_name = next_analysis( $logic_name );
+	  $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1;
+
           # no more steps we can take, jump the the next job;
           if ( ! $next_logic_name ) {
             $done++;
@@ -445,7 +500,7 @@ sub run {
           }
 
           # all threads for this run has to finish before we can 
-          # proceed.
+          # proceed to the next one.
           if ( $main::analysis{ $next_logic_name }{ sync } ) {
             
             my @lactive = fetch_active_jobs( $logic_name );
@@ -482,13 +537,13 @@ sub run {
       }
     }
 
-    print "Done: $done, Running: $running, Started: $started, No-restart: $no_restart \n";
+    check_n_store_state();
+#    print "Done: $done, Running: $running, Started: $started, No-restart: $no_restart \n";
+    print job_report( 1 );
     last if ( ! $running && ! $started);
 
-    check_n_store_state();
     sleep ( $sleep_time );
     check_jobs();
-    ( $done, $running, $started) = (0,0,0);
     
   }
   
@@ -574,7 +629,6 @@ sub validate_flow {
 	print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
       }
       else {
-	
 	my $function = function_module($main::analysis{$current_logic_name}{ function });
 	print "Will be running $function\n";
       }
@@ -621,11 +675,21 @@ sub store_state {
 	      jms_hash           => \%jms_hash,
 	      save_interval      => $save_interval,
 	      verbose            => $verbose,
+	      last_save          => $last_save,
+	      save_interval      => $save_interval,
+	      max_retry          => $max_retry,
+	      sleep_time         => $sleep_time,
+	      max_jobs           => $max_jobs,
+	      hive               => $hive,
+	      job_counter        => $job_counter,
+	      
+	      retained_jobs      => \@retained_jobs,
 
 	      #main file variables.
-	      argv               => \@main::ARGV,
+	      argv               => \@argv,
 	      flow               => \%main::flow,
-	      analysis           => \%main::analysis};
+	      analysis           => \%main::analysis,
+	      analysis_order     => \%analysis_order};
 
   $last_save = Time::HiRes::gettimeofday();
 
@@ -658,10 +722,22 @@ sub restore_state {
   $save_interval      = $$blob{save_interval};
   $verbose            = $$blob{verbose};
 
+  $last_save          = $$blob{last_save};
+  $save_interval      = $$blob{save_interval};
+  $max_retry          = $$blob{max_retry};
+  $sleep_time         = $$blob{sleep_time};
+  $max_jobs           = $$blob{max_jobs};
+  $hive               = $$blob{hive};
+  $job_counter        = $$blob{job_counter};
+	      
+  @retained_jobs      = $$blob{retained_jobs};
+
 
   @main::ARGV         = @{$$blob{argv}};
   %main::flow         = %{$$blob{flow}};
   %main::analysis     = %{$$blob{analysis}};
+  %analysis_order     = %{$$blob{analysis_order}};
+
 }
 
 
@@ -673,6 +749,8 @@ sub catch_ctrl_c {
 
 BEGIN {
   $SIG{INT} = \&catch_ctrl_c;
+  @argv = @main::ARGV;
+
 }
 
 
