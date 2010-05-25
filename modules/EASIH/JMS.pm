@@ -18,13 +18,15 @@ my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose        =   0;
 my $max_retry      =   3;
+my $jobs_submitted =   0;
 my $sleep_time     =  10;
 my $current_logic_name;
 my $use_storing    =  1; # debugging purposes
-my $max_jobs       = -1; # to control that we do not flood Darwin, or if local, block the machine
+my $max_jobs       =  2; # to control that we do not flood Darwin, or if local, block the machine
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
 my $hive           = "DetachedDummy";
+$hive           = "Kluster";
 
 my @delete_files;
 my %jms_hash;
@@ -130,7 +132,7 @@ sub cwd {
 
 
 # 
-# submit a single job to the HPC
+# submit a single job to the
 # 
 # Kim Brugger (22 Apr 2010)
 sub submit_job {
@@ -142,6 +144,24 @@ sub submit_job {
     return;
   }
 
+  if ( ! $cmd ) {
+     use Carp;
+     Carp::confess(" no cmd given\n");
+  }
+
+
+  if (@retained_jobs && $max_jobs > $jobs_submitted) {
+    push @retained_jobs, [ $cmd, $output, $current_logic_name];
+    my $params = shift @retained_jobs;
+#    print "Queued/unqueued a job ( ". @retained_jobs . " jobs retained)\n";
+    ($cmd, $output, $current_logic_name)= (@$params);
+#    print " PARAMS :::     ($cmd, $output, $current_logic_name) \n";
+  }
+  elsif ($max_jobs <= $jobs_submitted ) {
+    push @retained_jobs, [ $cmd, $output, $current_logic_name];
+#    print "Retained a job ( ". @retained_jobs . " jobs retained)\n";
+    return;
+  };
 
   my $jms_id = $job_counter++;
   my $instance = { status      => $SUBMITTED,
@@ -149,6 +169,8 @@ sub submit_job {
 		   command     => $cmd,
 		   output      => $output,
 		   logic_name  => $current_logic_name};
+
+#  print "$jms_id ::: " . Dumper( $instance );
 
   # dummy jobs insert output that will be picked up by the next step of the process,
   # so not all jobs execute a command.
@@ -163,6 +185,8 @@ sub submit_job {
   }    
 
   $jms_hash{ $jms_id }  = $instance;
+
+  $jobs_submitted++;      
 
   push @jms_ids, $jms_id;
 }
@@ -219,7 +243,7 @@ sub job_report {
     
   }
 
-  my $report;
+  my $report = "";
 #  $report .= "Analysis: Finished/Running/Other/Failed\n";
   
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
@@ -241,7 +265,7 @@ sub job_report {
   
 
 
-  return "[$time]:\n$report"."Global: D: $done, R: $running, O: $other, F: $failed\n";
+  return "[$time]:\n$report"."Global: D: $done, R: $running, O: $other, F: $failed, Q: ".@retained_jobs."\n";
 }
 
 
@@ -259,6 +283,11 @@ sub check_jobs {
     # Only look at the jobs we are currently tracking
     next if ( ! $jms_hash{ $jms_id }{ tracking } );
 
+    if ( ! $jms_hash{ $jms_id }{ job_id } ) {
+      print "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
+      die;
+    }
+
     my $job_status = "EASIH::JMS::Hive::".$hive."::job_status";
     no strict 'refs';
     my $status = &$job_status( $jms_hash{ $jms_id}{ job_id } );
@@ -266,14 +295,15 @@ sub check_jobs {
     $jms_hash{ $jms_id }{ status } = $status;
 
     # this should be done with switch, but as we are not on perl 5.10+ this is how it is done...
-    if ($status  ==  $FINISHED  ) {
+    if ($status ==  $FINISHED  ) {
       $done++;
+      $jobs_submitted--;
     }
     elsif ($status == $FAILED   ) {
       $failed++;
       $jms_hash{ $jms_id }{ failed }++;
       if ( $jms_hash{ $jms_id }{ failed } < $max_retry ) {
-	print "resubmitting job\n";
+	print "Failed, resubmitting job\n";
 	resubmit_job( $jms_id );
       }
       else { 
@@ -315,7 +345,7 @@ sub reset {
 
 
 # 
-# reset the failed states, so the pipeline can run again
+# 
 # 
 # Kim Brugger (26 Apr 2010)
 sub print_states {
@@ -501,18 +531,27 @@ sub run {
 
           # all threads for this run has to finish before we can 
           # proceed to the next one.
-          if ( $main::analysis{ $next_logic_name }{ sync } ) {
-            
+          if ( $main::analysis{ $next_logic_name }{ sync }  ) { 
+
+#	    print "Checking for synced status\n";
+	    
+	    my $all_threads_done = 1;
+	    foreach my $retained ( @retained_jobs ) {
+	      if ( $$retained[2] eq $logic_name ) {
+		$all_threads_done = 0;
+		last;
+	      }
+	    }
+	    
             my @lactive = fetch_active_jobs( $logic_name );
             my @inputs;
-	    my $all_threads_done = 1;
             foreach my $ljms_id ( @lactive ) {
               if ( ! $jms_hash{ $ljms_id }{ done } ) {
 		$all_threads_done = 0;
 		last;
 	      }
-              push @inputs, $main::analysis{ $logic_name }{ output };
-            }
+	      push @inputs, $main::analysis{ $logic_name }{ output };
+	    }
 	    
 	    if ( $all_threads_done ) {
 	      print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) \n";
@@ -520,7 +559,7 @@ sub run {
 	      $started++;
 	    }
             
-          }
+	  }
           else {
 	    print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n";
             run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
@@ -537,16 +576,30 @@ sub run {
       }
     }
 
+    if ($jobs_submitted < $max_jobs  && @retained_jobs) {
+      
+#      print "------------------------------------------- run submitting jobs \n";
+      
+      while ( $jobs_submitted < $max_jobs && @retained_jobs ) {
+	my $params = shift @retained_jobs;
+	submit_job(@$params);
+	$started++;
+      }
+    }
+
+
     check_n_store_state();
 #    print "Done: $done, Running: $running, Started: $started, No-restart: $no_restart \n";
     print job_report( 1 );
-    last if ( ! $running && ! $started);
+    last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
     check_jobs();
     
   }
   
+
+  print "Retaineded jobs: ". @retained_jobs . " (should be 0)\n";
 
 }
 

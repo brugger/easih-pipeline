@@ -1,6 +1,7 @@
 package EASIH::JMS::Hive;
 
 use EASIH::JMS::Hive::DetachedDummy;
+use EASIH::JMS::Hive::Kluster;
 
 use strict;
 use warnings;
