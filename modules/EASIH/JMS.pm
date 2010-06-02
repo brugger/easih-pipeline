@@ -245,6 +245,8 @@ sub job_report {
 
   my $report = "";
 #  $report .= "Analysis: Finished/Running/Other/Failed\n";
+
+#  print Dumper( \%res );
   
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
     
@@ -262,11 +264,40 @@ sub job_report {
 
   use POSIX 'strftime';
   my $time = strftime('%m/%d/%y: %H.%M:', localtime);
-  
-
 
   return "[$time]:\n$report"."Global: D: $done, R: $running, O: $other, F: $failed, Q: ".@retained_jobs."\n";
 }
+
+
+
+# 
+# 
+# 
+# Kim Brugger (27 May 2010)
+sub run_stats {
+  
+  my %res = ();
+
+  foreach my $jms_id ( @jms_ids ) {
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+
+    my $job_runtime = "EASIH::JMS::Hive::".$hive."::job_runtime";
+    no strict 'refs';
+
+    $res{ $logic_name }{ runtime } += int(&$job_runtime( $job_id )) if ( $status == $FINISHED );
+  }
+
+  my $report = "Run stats : \n";
+  
+  foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
+    $report .= "$logic_name: $res{ $logic_name }{ runtime } seconds\n";
+  }
+
+  print $report;
+}
+
 
 
 # 
@@ -376,11 +407,6 @@ sub fail {
 }
 
 
-
-
-
-
-
 # 
 # 
 # 
@@ -395,7 +421,6 @@ sub tmp_file {
 
   return "$tmp_file$postfix";
 }
-
 
 
 
@@ -468,7 +493,6 @@ sub dry_run {
 
 
 
-
 # 
 # 
 # 
@@ -482,8 +506,6 @@ sub fetch_active_jobs {
 
   return @active_jobs;
 }
-
-
 
 
 # 
@@ -591,11 +613,11 @@ sub run {
     check_n_store_state();
 #    print "Done: $done, Running: $running, Started: $started, No-restart: $no_restart \n";
     print job_report( 1 );
+    run_stats();    
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
     check_jobs();
-    
   }
   
 
@@ -713,6 +735,7 @@ sub validate_flow {
 sub store_state {
   my ($filename ) = @_;
 
+
   return if ( $dry_run);
   return if ( ! $use_storing );
 
@@ -722,6 +745,12 @@ sub store_state {
   }
   
   print "JMS :: Storing state in: '$filename'\n";
+
+  my $stats = "EASIH::JMS::Hive::".$hive."::stats";
+  {
+    no strict 'refs';
+    $stats = \%$stats;
+  }
 
   my $blob = {delete_files       => \@delete_files,
 	      jms_ids            => \@jms_ids,
@@ -736,8 +765,10 @@ sub store_state {
 	      hive               => $hive,
 	      job_counter        => $job_counter,
 	      
+	      stats              => $stats,
+	      
 	      retained_jobs      => \@retained_jobs,
-
+	      current_logic_name => $current_logic_name,
 	      #main file variables.
 	      argv               => \@argv,
 	      flow               => \%main::flow,
@@ -784,12 +815,20 @@ sub restore_state {
   $job_counter        = $$blob{job_counter};
 	      
   @retained_jobs      = $$blob{retained_jobs};
-
+  $current_logic_name = $$blob{current_logic_name};
 
   @main::ARGV         = @{$$blob{argv}};
   %main::flow         = %{$$blob{flow}};
   %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
+
+
+  my $stats = "EASIH::JMS::Hive::".$hive."::stats";
+  {
+    no strict 'refs';
+    $stats = \%$stats;
+  }
+  %$stats             = %{$$blob{stats}};
 
 }
 
