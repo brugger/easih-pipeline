@@ -1,11 +1,13 @@
 package EASIH::JMS::Hive::Darwin;
 
-use EASIH::JMS::Hive;
+#use EASIH::JMS::Hive;
 use EASIH::JMS;
 
+#use strict;
+use warnings;
+@ISA = qw(EASIH::JMS::Hive);
 
-
-@ISA = ('EASIH::JMS::Hive');
+our %stats;
 
 
 
@@ -16,14 +18,16 @@ use EASIH::JMS;
 sub submit_job {
   my ( $cmd, $limit) = @_;
 
+#  print "-->>> cd $EASIH::JMS::cwd; $cmd \n";
+
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
-  open (my $qpipe, " | qsub $hpc_params -o q-logs > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
-  print $qpipe "cd $EASIH::cwd; $cmd";
+  open (my $qpipe, " | qsub $limit -o q-logs > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
+  print $qpipe "cd $EASIH::JMS::cwd; $cmd";
   close( $qpipe );
   
-  print "$cmd \n" if ( $verbose );
+#  print "$cmd \n" if ( $verbose );
   
   my $job_id = 0;
     
@@ -49,21 +53,14 @@ sub submit_job {
 sub job_status {
   my ( $job_id) = @_;
 
-# 
-# 
-# 
-# Kim Brugger (22 Apr 2010)
-sub job_stats {
-  my ($job_id)  = @_;
-
   my %res;
   open (my $qspipe, "qstat -f $job_id 2> /dev/null | ") || die "Could not open 'qstat-pipeline': $!\n";
   my ( $id, $value);
   while(<$qspipe>) {
     chomp;
-#    print "$_ \n";
+    s/\r//g;
     if (/(.*?) = (.*)/ ) {
-      $res{$id} = $value if ( $id && $value);
+      $res{$id} = $value if ( $id && defined $value);
       $id    = $1;
       $value = $2;
       $id    =~ s/^\s+//;
@@ -72,17 +69,66 @@ sub job_stats {
       $value .= $1;
     }
   }
+  $res{$id} = $value if ( $id && defined $value);
 
 
+#  use Data::Dumper;
+#  print Dumper( \%res );
+
+
+  if ( $res{job_state} eq "C" ) {
+    my ($hour, $min, $sec) = split(":", $res{'resources_used.walltime'});
+
+    $stats{$job_id}{runtime} = $sec + 60 * $min + 3600 * $hour;
+    $stats{$job_id}{memory } = $res{'resources_used.mem'};
+
+    return $EASIH::JMS::FINISHED if ( $res{exit_status} == 0);
+
+    return $EASIH::JMS::FAILED   if ( $res{exit_status} != 0);
+  }
+
+  return $EASIH::JMS::RUNNING  if ( $res{job_state} eq "R");
+  return $EASIH::JMS::QUEUEING if ( $res{job_state} eq "Q");
+
+  return $EASIH::JMS::UNKNOWN;
+
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (27 May 2010)
+sub job_runtime {
+  my ($job_id ) = @_;
+
+
+  return $stats{$job_id}{runtime};
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (27 May 2010)
+sub job_memory {
+  my ($job_id ) = @_;
   
-  return $JMS::FAILED   if ( $res{exit_status} && $res{exit_status} != 0);
-  return $JMS::FINISHED if ( $res{exit_status});
+  my $mem_usage = $stats{$job_id}{memory };
+  
+  if ( $mem_usage =~ /(\d+)kb/i) {
+    $mem_usage = $1* 1000;
+  }
+  elsif ( $mem_usage =~ /(\d+)mb/i) {
+    $mem_usage = $1* 1000000;
+  }
+  elsif ( $mem_usage =~ /(\d+)gb/i) {
+    $mem_usage = $1* 1000000000;
+  }
 
-  return $JMS::RUNNING  if ( $res{job_state} eq "R");
-  return $JMS::QUEUEING if ( $res{job_state} eq "Q");
-
-  return $JMS::UNKNOWN;
-
+  $stats{$job_id}{memory} = $mem_usage;
+  return $stats{$job_id}{memory};
 }
 
 

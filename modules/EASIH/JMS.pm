@@ -17,16 +17,17 @@ use EASIH::JMS::Hive;
 my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose        =   0;
-my $max_retry      =   3;
+my $max_retry      =   0;
 my $jobs_submitted =   0;
 my $sleep_time     =  10;
 my $current_logic_name;
-my $use_storing    =  1; # debugging purposes
-my $max_jobs       =  2; # to control that we do not flood Darwin, or if local, block the machine
+my $use_storing    =   1; # debugging purposes
+my $max_jobs       =   2; # to control that we do not flood Darwin, or if local, block the machine
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
 my $hive           = "DetachedDummy";
-$hive           = "Kluster";
+#$hive           = "Kluster";
+#$hive           = "Darwin";
 
 my @delete_files;
 my %jms_hash;
@@ -37,9 +38,9 @@ my %analysis_order;
 
 my $job_counter = 1; # This is for generating internal jms_id (JobManamentSystem_Id)
 
-my $cwd      = `pwd`;
-
+our $cwd      = `pwd`;
 chomp($cwd);
+
 my $dry_run  = 0;
 
 
@@ -122,7 +123,7 @@ sub max_retry {
 
 
 # 
-# 
+# Setting the working directory, if different than the cwd
 # 
 # Kim Brugger (23 Apr 2010)
 sub cwd {
@@ -132,7 +133,7 @@ sub cwd {
 
 
 # 
-# submit a single job to the
+# submit a single job 
 # 
 # Kim Brugger (22 Apr 2010)
 sub submit_job {
@@ -179,7 +180,7 @@ sub submit_job {
     my $submit_job = "EASIH::JMS::Hive::".$hive."::submit_job";
 
     no strict 'refs';
-    my $job_id = &$submit_job( $cmd, $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = &$submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
 
     $$instance{ job_id } = $job_id;
   }    
@@ -204,7 +205,7 @@ sub resubmit_job {
   my $logic_name = $$instance{logic_name};
 
   if ( $dry_run ) {
-    print "echo 'cd $cwd; $$instance{cmd}' |qsub $main::analysis{$logic_name}{ hpc_param } \n";
+    print "echo 'cd $cwd; $$instance{cmd}' | qsub $main::analysis{$logic_name}{ hpc_param } \n";
     return;
   }
 
@@ -215,6 +216,7 @@ sub resubmit_job {
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
   $$instance{ tracking } = 1;
+  $jobs_submitted++;      
 
 }
 
@@ -263,9 +265,11 @@ sub job_report {
   }
 
   use POSIX 'strftime';
-  my $time = strftime('%m/%d/%y: %H.%M:', localtime);
+  my $time = strftime('%m/%d/%y %H.%M', localtime);
 
-  return "[$time]:\n$report"."Global: D: $done, R: $running, O: $other, F: $failed, Q: ".@retained_jobs."\n";
+
+  return "[$time]:\n----------------------\nGlobal: Done: $done, Running: $running, Other: $other, Failed: $failed, Queue: ".@retained_jobs."\n$report" if ( $full );
+  return "[$time]:\nGlobal: Done: $done, Running: $running, Other: $other, Failed: $failed, Queue: ".@retained_jobs."\n";
 }
 
 
@@ -289,10 +293,54 @@ sub run_stats {
     $res{ $logic_name }{ runtime } += int(&$job_runtime( $job_id )) if ( $status == $FINISHED );
   }
 
-  my $report = "Run stats : \n";
+  return if ( keys %res == 0);
+
+  my $report = "Run time stats : \n";
   
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
     $report .= "$logic_name: $res{ $logic_name }{ runtime } seconds\n";
+  }
+
+  print $report;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (27 May 2010)
+sub memory_stats {
+  my %res = ();
+
+  foreach my $jms_id ( @jms_ids ) {
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+
+    my $job_memory = "EASIH::JMS::Hive::".$hive."::job_memory";
+    no strict 'refs';
+    
+    if ( $status == $FINISHED ) {
+      my $memory = int(&$job_memory( $job_id ));
+      $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
+    }
+  }
+
+  return if ( keys %res == 0);
+
+  my $report = "Max memory usage stats : \n";
+  
+  foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
+    if ($res{ $logic_name }{ memory } > 1000000000 ) {
+      $res{ $logic_name }{ memory } = sprintf("%.2fGB",$res{ $logic_name }{ memory }/1000000000);
+    }
+    elsif ($res{ $logic_name }{ memory } > 1000000 ) {
+      $res{ $logic_name }{ memory } = sprintf("%.2fMB",$res{ $logic_name }{ memory }/1000000);
+    }
+    elsif ($res{ $logic_name }{ memory } > 1000 ) {
+      $res{ $logic_name }{ memory } = sprintf("%.2fKB",$res{ $logic_name }{ memory }/1000);
+    }
+    $report .= "$logic_name: $res{ $logic_name }{ memory } \n";
   }
 
   print $report;
@@ -332,6 +380,7 @@ sub check_jobs {
     }
     elsif ($status == $FAILED   ) {
       $failed++;
+      $jobs_submitted--;
       $jms_hash{ $jms_id }{ failed }++;
       if ( $jms_hash{ $jms_id }{ failed } < $max_retry ) {
 	print "Failed, resubmitting job\n";
@@ -459,7 +508,7 @@ sub delete_hpc_logs {
   foreach my $jms_id ( @jms_ids ) {
     
     my ($host, $path) = split(":", $jms_hash{$jms_id}{ hpc_stats }{Error_Path});
-    push @files, $path if ( -f $path);
+    push @files, $path if ( $path && -f $path);
     ($host, $path) = split(":", $jms_hash{$jms_id}{ hpc_stats }{Output_Path});
     push @files, $path if ( -f $path);
 
@@ -555,8 +604,7 @@ sub run {
           # proceed to the next one.
           if ( $main::analysis{ $next_logic_name }{ sync }  ) { 
 
-#	    print "Checking for synced status\n";
-	    
+    
 	    my $all_threads_done = 1;
 	    foreach my $retained ( @retained_jobs ) {
 	      if ( $$retained[2] eq $logic_name ) {
@@ -582,6 +630,7 @@ sub run {
 	    }
             
 	  }
+	  # unsynced part of the pipeline, run the next job.
           else {
 	    print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n";
             run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
@@ -598,20 +647,15 @@ sub run {
       }
     }
 
-    if ($jobs_submitted < $max_jobs  && @retained_jobs) {
-      
-#      print "------------------------------------------- run submitting jobs \n";
-      
-      while ( $jobs_submitted < $max_jobs && @retained_jobs ) {
-	my $params = shift @retained_jobs;
-	submit_job(@$params);
-	$started++;
-      }
+
+    while ( $jobs_submitted < $max_jobs && @retained_jobs ) {
+      my $params = shift @retained_jobs;
+      submit_job(@$params);
+      $started++;
     }
 
 
     check_n_store_state();
-#    print "Done: $done, Running: $running, Started: $started, No-restart: $no_restart \n";
     print job_report( 1 );
     run_stats();    
     last if ( ! $running && ! $started && !@retained_jobs);
@@ -673,6 +717,9 @@ sub _pm_to_file {
 # Kim Brugger (27 Apr 2010)
 sub function_module {
   my ($function, $logic_name) = @_;
+
+  die "$logic_name does not point to a function\n" if ( ! $function );
+  
   
   my $module = 'main';
     
