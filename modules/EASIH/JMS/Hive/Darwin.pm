@@ -7,8 +7,18 @@ use EASIH::JMS;
 use warnings;
 @ISA = qw(EASIH::JMS::Hive);
 
-our %stats;
 
+#my %stats;
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub stats {
+  my ($self, $new_stats ) = @_;
+  %stats = %$new_stats if ( $new_stats );
+  return \%stats;
+}
 
 
 # 
@@ -16,7 +26,7 @@ our %stats;
 # 
 # Kim Brugger (18 May 2010)
 sub submit_job {
-  my ( $cmd, $limit) = @_;
+  my ($self, $cmd, $limit) = @_;
 
 #  print "-->>> cd $EASIH::JMS::cwd; $cmd \n";
 
@@ -51,7 +61,7 @@ sub submit_job {
 # 
 # Kim Brugger (18 May 2010)
 sub job_status {
-  my ( $job_id) = @_;
+  my ($self, $job_id) = @_;
 
   my %res;
   open (my $qspipe, "qstat -f $job_id 2> /dev/null | ") || die "Could not open 'qstat-pipeline': $!\n";
@@ -72,8 +82,6 @@ sub job_status {
   $res{$id} = $value if ( $id && defined $value);
 
 
-#  use Data::Dumper;
-#  print Dumper( \%res );
 
 
   if ( $res{job_state} eq "C" ) {
@@ -101,8 +109,7 @@ sub job_status {
 # 
 # Kim Brugger (27 May 2010)
 sub job_runtime {
-  my ($job_id ) = @_;
-
+  my ($self, $job_id ) = @_;
 
   return $stats{$job_id}{runtime};
 }
@@ -113,7 +120,7 @@ sub job_runtime {
 # 
 # Kim Brugger (27 May 2010)
 sub job_memory {
-  my ($job_id ) = @_;
+  my ($self, $job_id ) = @_;
   
   my $mem_usage = $stats{$job_id}{memory };
   

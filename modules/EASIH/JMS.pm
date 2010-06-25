@@ -22,12 +22,14 @@ my $jobs_submitted =   0;
 my $sleep_time     =  10;
 my $current_logic_name;
 my $use_storing    =   1; # debugging purposes
-my $max_jobs       =   2; # to control that we do not flood Darwin, or if local, block the machine
+my $max_jobs       =   2; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
-my $hive           = "DetachedDummy";
-#$hive           = "Kluster";
-#$hive           = "Darwin";
+my $no_restart     =   0; # failed jobs that cannot be restarted. 
+
+# default dummy hive that will fail gracefully, and the class that every other hive
+# should inherit from.
+my $hive           = "EASIH::JMS::Hive";
 
 my @delete_files;
 my %jms_hash;
@@ -73,9 +75,17 @@ sub verbosity {
 # 
 # 
 # 
-# Kim Brugger (23 Apr 2010)
+# Kim Brugger (24 Jun 2010)
 sub hive {
-  $hive = shift || $hive;
+  $hive = shift;
+  
+  if ( $hive ) {
+    # strip away the the expected class
+    $hive =~ s/EASIH::JMS::Hive:://;
+    # and append it (again);
+    $hive = "EASIH::JMS::Hive::".$hive;
+  }
+
   return $hive;
 }
 
@@ -150,15 +160,14 @@ sub submit_job {
      Carp::confess(" no cmd given\n");
   }
 
-
-  if (@retained_jobs && $max_jobs > $jobs_submitted) {
+  if (@retained_jobs && $max_jobs > 0 && $max_jobs > $jobs_submitted) {
     push @retained_jobs, [ $cmd, $output, $current_logic_name];
     my $params = shift @retained_jobs;
 #    print "Queued/unqueued a job ( ". @retained_jobs . " jobs retained)\n";
     ($cmd, $output, $current_logic_name)= (@$params);
 #    print " PARAMS :::     ($cmd, $output, $current_logic_name) \n";
   }
-  elsif ($max_jobs <= $jobs_submitted ) {
+  elsif ($max_jobs > 0 && $max_jobs <= $jobs_submitted ) {
     push @retained_jobs, [ $cmd, $output, $current_logic_name];
 #    print "Retained a job ( ". @retained_jobs . " jobs retained)\n";
     return;
@@ -177,10 +186,7 @@ sub submit_job {
   # so not all jobs execute a command.
   if ( $cmd ) {
 
-    my $submit_job = "EASIH::JMS::Hive::".$hive."::submit_job";
-
-    no strict 'refs';
-    my $job_id = &$submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $hive->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
 
     $$instance{ job_id } = $job_id;
   }    
@@ -209,9 +215,7 @@ sub resubmit_job {
     return;
   }
 
-  my $submit_job = "EASIH::JMS::Hive::".$hive."::submit_job";
-  no strict 'refs';
-  my $job_id = &$submit_job( $$instance{ cmd }, $main::analysis{$logic_name}{ hpc_param });
+  my $job_id = $hive->submit_job( $$instance{ cmd }, $main::analysis{$logic_name}{ hpc_param });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -254,7 +258,7 @@ sub job_report {
     
     $report .= "$logic_name: ";
     $report .= ($res{ $logic_name }{ $FINISHED } || 0) . "/";
-    $done += ($res{ $logic_name }{ $FINISHED } || 0);
+    $done   += ($res{ $logic_name }{ $FINISHED } || 0);
     $report .= ($res{ $logic_name }{ $RUNNING  } || 0) . "/";
     $running += ($res{ $logic_name }{ $RUNNING } || 0);
     my $sub_other = ($res{ $logic_name }{ $QUEUEING  } || 0);
@@ -287,15 +291,12 @@ sub run_stats {
     my $status     = $jms_hash{ $jms_id }{ status }; 
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
 
-    my $job_runtime = "EASIH::JMS::Hive::".$hive."::job_runtime";
-    no strict 'refs';
-
-    $res{ $logic_name }{ runtime } += int(&$job_runtime( $job_id )) if ( $status == $FINISHED );
+    $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) if ( $status == $FINISHED );
   }
 
   return if ( keys %res == 0);
 
-  my $report = "Run time stats : \n";
+  my $report = "Run time stats:\n";
   
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
     $report .= "$logic_name: $res{ $logic_name }{ runtime } seconds\n";
@@ -347,6 +348,74 @@ sub memory_stats {
 }
 
 
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub report {
+  my %res = ();
+
+  foreach my $jms_id ( @jms_ids ) {
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+    $res{ $logic_name }{ $status }++;
+
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+
+    if ( $status == $FINISHED ) {
+      my $memory = int($hive->job_memory( $job_id )) || 0;
+      $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
+      $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) if ( $status == $FINISHED );
+    }
+
+
+  }
+
+  return if ( keys %res == 0);
+
+  my $report = "Run usage statistics:\n";
+  foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
+    if ( ! $res{ $logic_name }{ memory } ) {
+      $res{ $logic_name }{ memory } = "N/A";
+    }
+    else {
+      if ($res{ $logic_name }{ memory } > 1000000000 ) {
+	$res{ $logic_name }{ memory } = sprintf("%.2fGB",$res{ $logic_name }{ memory }/1000000000);
+      }
+      elsif ($res{ $logic_name }{ memory } > 1000000 ) {
+	$res{ $logic_name }{ memory } = sprintf("%.2fMB",$res{ $logic_name }{ memory }/1000000);
+      }
+      elsif ($res{ $logic_name }{ memory } > 1000 ) {
+	$res{ $logic_name }{ memory } = sprintf("%.2fKB",$res{ $logic_name }{ memory }/1000);
+      }
+    }
+
+    $res{ $logic_name }{ runtime } ||= 0;
+
+    my ($hour, $min, $sec) = (0,0,0);
+    $hour = int($res{ $logic_name }{ runtime }/3600);
+    $res{ $logic_name }{ runtime } -= 3600*$hour; 
+    $min = int($res{ $logic_name }{ runtime }/60);
+    $res{ $logic_name }{ runtime } -= 60*$min;
+    $sec = int($res{ $logic_name }{ runtime });
+    $res{ $logic_name }{ runtime } = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
+
+    my $queue_stats;
+
+    $queue_stats .= sprintf("%02d/%02d/",($res{ $logic_name }{ $FINISHED } || 0),($res{ $logic_name }{ $RUNNING  } || 0));
+    my $sub_other = ($res{ $logic_name }{ $QUEUEING  } || 0);
+    $sub_other += ($res{ $logic_name }{ $RESUBMITTED  } || 0);
+    $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
+    $queue_stats .= sprintf("%02d/%02d",$sub_other, ($res{ $logic_name }{ $FAILED  } || 0));
+
+
+    $report .= sprintf("%-15s ||  %8s  || %10s || $queue_stats\n",$logic_name,$res{ $logic_name }{ runtime },  $res{ $logic_name }{ memory });
+  }
+
+  print $report;
+}
+
+
 
 # 
 # Wait for the jobs to terminate
@@ -356,7 +425,6 @@ sub check_jobs {
 
   return if ( $dry_run );
 
-  my ( $done, $running, $waiting, $queued, $failed, $other, ) = (0,0,0,0,0,0);
   foreach my $jms_id ( @jms_ids ) {
       
     # Only look at the jobs we are currently tracking
@@ -367,19 +435,15 @@ sub check_jobs {
       die;
     }
 
-    my $job_status = "EASIH::JMS::Hive::".$hive."::job_status";
-    no strict 'refs';
-    my $status = &$job_status( $jms_hash{ $jms_id}{ job_id } );
+    my $status = $hive->job_status( $jms_hash{ $jms_id}{ job_id } );
 
     $jms_hash{ $jms_id }{ status } = $status;
 
     # this should be done with switch, but as we are not on perl 5.10+ this is how it is done...
     if ($status ==  $FINISHED  ) {
-      $done++;
       $jobs_submitted--;
     }
-    elsif ($status == $FAILED   ) {
-      $failed++;
+    elsif ($status == $FAILED ) {
       $jobs_submitted--;
       $jms_hash{ $jms_id }{ failed }++;
       if ( $jms_hash{ $jms_id }{ failed } < $max_retry ) {
@@ -388,16 +452,8 @@ sub check_jobs {
       }
       else { 
 	print "Cannot resubmit job ($jms_hash{ $jms_id }{ failed } < $max_retry)\n";
+	$no_restart++;
       }
-    }
-    elsif ($status == $RUNNING  ) {
-      $running++;
-    }
-    elsif ($status == $QUEUEING  ) {
-      $queued++; 
-    }
-    else {
-      $other++;
     }
     
   }
@@ -567,7 +623,7 @@ sub run {
   while (1) {
 
     check_n_store_state();
-    my ( $done, $running, $started, $no_restart) = (0,0,0, 0);
+    my ( $done, $running, $started) = (0,0,0);
 
     my @active_jobs = fetch_active_jobs();
     
@@ -601,8 +657,9 @@ sub run {
           }
 
           # all threads for this run has to finish before we can 
-          # proceed to the next one.
-          if ( $main::analysis{ $next_logic_name }{ sync }  ) { 
+          # proceed to the next one. If a failed job exists this will never be 
+	  # possible
+          if ( $main::analysis{ $next_logic_name }{ sync } && ! $no_restart ) { 
 
     
 	    my $all_threads_done = 1;
@@ -639,7 +696,7 @@ sub run {
         }
 	elsif ( $jms_hash{ $jms_id }{ status } == $FAILED ) {
 	  $jms_hash{ $jms_id }{ tracking } = 0;
-	  $no_restart++;
+#	  $no_restart++;
 	}
         else {
           $running++;
@@ -648,7 +705,7 @@ sub run {
     }
 
 
-    while ( $jobs_submitted < $max_jobs && @retained_jobs ) {
+    while ( $max_jobs > 0 && $jobs_submitted < $max_jobs && @retained_jobs ) {
       my $params = shift @retained_jobs;
       submit_job(@$params);
       $started++;
@@ -782,7 +839,6 @@ sub validate_flow {
 sub store_state {
   my ($filename ) = @_;
 
-
   return if ( $dry_run);
   return if ( ! $use_storing );
 
@@ -792,12 +848,6 @@ sub store_state {
   }
   
   print "JMS :: Storing state in: '$filename'\n";
-
-  my $stats = "EASIH::JMS::Hive::".$hive."::stats";
-  {
-    no strict 'refs';
-    $stats = \%$stats;
-  }
 
   my $blob = {delete_files       => \@delete_files,
 	      jms_ids            => \@jms_ids,
@@ -812,7 +862,7 @@ sub store_state {
 	      hive               => $hive,
 	      job_counter        => $job_counter,
 	      
-	      stats              => $stats,
+	      stats              => $hive->stats,
 	      
 	      retained_jobs      => \@retained_jobs,
 	      current_logic_name => $current_logic_name,
@@ -836,7 +886,6 @@ sub store_state {
 sub restore_state {
   my ( $filename ) = @_;
 
-
   if ( ! $filename ) {
     $0 =~ s/.*\///;
     $filename = "$0.freeze";
@@ -858,7 +907,6 @@ sub restore_state {
   $max_retry          = $$blob{max_retry};
   $sleep_time         = $$blob{sleep_time};
   $max_jobs           = $$blob{max_jobs};
-  $hive               = $$blob{hive};
   $job_counter        = $$blob{job_counter};
 	      
   @retained_jobs      = $$blob{retained_jobs};
@@ -869,14 +917,8 @@ sub restore_state {
   %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
 
-
-  my $stats = "EASIH::JMS::Hive::".$hive."::stats";
-  {
-    no strict 'refs';
-    $stats = \%$stats;
-  }
-  %$stats             = %{$$blob{stats}};
-
+  hive($$blob{hive});
+  $hive->stats($$blob{stats});
 }
 
 

@@ -8,9 +8,6 @@ use strict;
 use warnings;
 
 
-
-
-
 # 
 # 
 # 
@@ -20,8 +17,6 @@ sub submit_job {
   die "submit_job is not implemented for this HIVE\n";
 
 }
-
-
 
 # 
 # 

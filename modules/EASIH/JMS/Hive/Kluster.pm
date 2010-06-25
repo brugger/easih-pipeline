@@ -26,7 +26,7 @@ my @waiting_jobs;
 # 
 # Kim Brugger (18 May 2010)
 sub submit_job {
-  my ( $cmd, $limit) = @_;
+  my ($self, $cmd, $limit) = @_;
   
   $cmd = $executer;
 
@@ -43,7 +43,7 @@ sub submit_job {
 # 
 # Kim Brugger (18 May 2010)
 sub job_status {
-  my ( $job_id) = @_;
+  my ($self, $job_id) = @_;
 
 #  print "job_id == $job_id\n";
 
@@ -62,7 +62,7 @@ sub job_status {
 
 
 sub create_child {
-  my ($command) = @_;
+  my ($self, $command) = @_;
 
   my $pid;
   if ($pid = fork) {
@@ -87,7 +87,7 @@ sub create_child {
 # 
 # Kim Brugger (27 May 2010)
 sub job_runtime {
-  my ($job_id ) = @_;
+  my ($self, $job_id ) = @_;
 
   return 0 if ( !$stats{$job_id}{end} || ! $stats{$job_id}{start});
   my $runtime = $stats{$job_id}{end} - $stats{$job_id}{start};

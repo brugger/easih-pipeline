@@ -19,7 +19,7 @@ my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/qstat.pl";
 # 
 # Kim Brugger (18 May 2010)
 sub submit_job {
-  my ( $cmd, $limit) = @_;
+  my ($self, $cmd, $limit) = @_;
   
   $cmd = -10;
 
@@ -39,7 +39,7 @@ sub submit_job {
 # 
 # Kim Brugger (18 May 2010)
 sub job_status {
-  my ( $job_id) = @_;
+  my ($self, $job_id) = @_;
 
   open (my $qpipe, " $executer $job_id | ") || die "Could not open qsub-pipe: $!\n";
   my $status = <$qpipe>;
