@@ -17,12 +17,12 @@ use EASIH::JMS::Hive;
 my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose        =   0;
-my $max_retry      =   0;
+my $max_retry      =   3;
 my $jobs_submitted =   0;
-my $sleep_time     =  10;
+my $sleep_time     =   5;
 my $current_logic_name;
 my $use_storing    =   1; # debugging purposes
-my $max_jobs       =   2; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
+my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
 my $no_restart     =   0; # failed jobs that cannot be restarted. 
@@ -143,11 +143,11 @@ sub cwd {
 
 
 # 
-# submit a single job 
+# submit a single job if $system is then a single system call is doing the work!
 # 
 # Kim Brugger (22 Apr 2010)
 sub submit_job {
-  my ($cmd, $output) = @_;
+  my ($cmd, $output, $system) = @_;
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
   if ( $dry_run ) {
@@ -182,12 +182,21 @@ sub submit_job {
 
 #  print "$jms_id ::: " . Dumper( $instance );
 
-  # dummy jobs insert output that will be picked up by the next step of the process,
-  # so not all jobs execute a command.
-  if ( $cmd ) {
+  if ( $system ) {
+    eval { system "$cmd" };
+    $$instance{ job_id } = -1;
+    if ( ! $@ ) {
+      $$instance{ status   } = $FINISHED;
+    }
+    else {
+      print "$@\n";
+      $$instance{ status   } = $FAILED;
+    }
+  }
+  else {
 
     my $job_id = $hive->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
-
+    
     $$instance{ job_id } = $job_id;
   }    
 
@@ -362,7 +371,9 @@ sub report {
 
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
 
-    if ( $status == $FINISHED ) {
+    
+
+    if ( $status == $FINISHED && $job_id != -1 ) {
       my $memory = int($hive->job_memory( $job_id )) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
       $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) if ( $status == $FINISHED );
@@ -375,7 +386,7 @@ sub report {
 
   my $report = "Run usage statistics:\n";
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
-    if ( ! $res{ $logic_name }{ memory } ) {
+    if ( ! defined $res{ $logic_name }{ memory } ) {
       $res{ $logic_name }{ memory } = "N/A";
     }
     else {
@@ -412,6 +423,10 @@ sub report {
     $report .= sprintf("%-15s ||  %8s  || %10s || $queue_stats\n",$logic_name,$res{ $logic_name }{ runtime },  $res{ $logic_name }{ memory });
   }
 
+  use POSIX 'strftime';
+  my $time = strftime('%m/%d/%y %H.%M', localtime);
+  print "[$time]\n";
+  print "-"x30 . "\n";
   print $report;
 }
 
@@ -434,10 +449,15 @@ sub check_jobs {
       print "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
       die;
     }
-
-    my $status = $hive->job_status( $jms_hash{ $jms_id}{ job_id } );
-
-    $jms_hash{ $jms_id }{ status } = $status;
+ 
+    my $status;
+    if ( $jms_hash{ $jms_id }{ job_id } == -1 ) {
+      $status = $jms_hash{ $jms_id }{ status };
+    }
+    else {	
+      $status = $hive->job_status( $jms_hash{ $jms_id}{ job_id } );
+      $jms_hash{ $jms_id }{ status } = $status;
+    }
 
     # this should be done with switch, but as we are not on perl 5.10+ this is how it is done...
     if ($status ==  $FINISHED  ) {
@@ -609,7 +629,25 @@ sub fetch_active_jobs {
     push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
   }
 
+  @active_jobs = sort { $a <=> $b } @active_jobs;
+
   return @active_jobs;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (18 May 2010)
+sub fetch_jobs {
+  my ( $logic_name ) = @_;
+
+  my @jobs;
+  foreach my $jms_id ( @jms_ids ) {    
+    push @jobs, $jms_id if ( $jms_hash{ $jms_id }{ logic_name } eq $logic_name );
+  }
+
+  return @jobs;
 }
 
 
@@ -639,9 +677,10 @@ sub run {
       @start_logic_names = ();
     }
     else {
-      
+
       foreach my $jms_id ( @active_jobs ) {
 
+	next if ( ! $jms_hash{ $jms_id }{ tracking });
         my $logic_name = $jms_hash{ $jms_id }{ logic_name };
 
         if ( $jms_hash{ $jms_id }{ status } == $FINISHED ) {
@@ -659,29 +698,24 @@ sub run {
           # all threads for this run has to finish before we can 
           # proceed to the next one. If a failed job exists this will never be 
 	  # possible
-          if ( $main::analysis{ $next_logic_name }{ sync } && ! $no_restart ) { 
+          if ( $main::analysis{ $next_logic_name }{ sync } && ! $no_restart) { 
 
-    
-	    my $all_threads_done = 1;
-	    foreach my $retained ( @retained_jobs ) {
-	      if ( $$retained[2] eq $logic_name ) {
-		$all_threads_done = 0;
-		last;
-	      }
-	    }
+	    next if ( @retained_jobs > 0 || $started);
 	    
-            my @lactive = fetch_active_jobs( $logic_name );
+	    my $all_threads_done = 1;
             my @inputs;
-            foreach my $ljms_id ( @lactive ) {
-              if ( ! $jms_hash{ $ljms_id }{ done } ) {
+            foreach my $ljms_id ( fetch_jobs( $logic_name ) ) {
+              if ( $jms_hash{ $ljms_id }{ status } != $FINISHED ) {
 		$all_threads_done = 0;
 		last;
 	      }
-	      push @inputs, $main::analysis{ $logic_name }{ output };
+	      
+	      $jms_hash{ $ljms_id }{ tracking } = 0;
+	      push @inputs, $jms_hash{ $ljms_id }{ output };
 	    }
 	    
 	    if ( $all_threads_done ) {
-	      print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) \n";
+	      print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!)\n";
 	      run_analysis( $next_logic_name, @inputs);
 	      $started++;
 	    }
@@ -713,8 +747,8 @@ sub run {
 
 
     check_n_store_state();
-    print job_report( 1 );
-    run_stats();    
+    #print job_report( 1 );
+    report();    
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
@@ -722,7 +756,7 @@ sub run {
   }
   
 
-  print "Retaineded jobs: ". @retained_jobs . " (should be 0)\n";
+#  print "Retaineded jobs: ". @retained_jobs . " (should be 0)\n";
 
 }
 

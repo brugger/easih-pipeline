@@ -29,13 +29,13 @@ sub job_status {
 }
 
 sub job_runtime {
-  print "job_runtime has not been implemented for the hive you are using!\n";
+#  print "job_runtime has not been implemented for the hive you are using!\n";
   return 0;
 
 }
 
 sub job_memory {
-  print "job_memory has not been implemented for the hive you are using!\n";
+#  print "job_memory has not been implemented for the hive you are using!\n";
   return 0;
 }
 
