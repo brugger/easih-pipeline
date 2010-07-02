@@ -224,7 +224,7 @@ sub resubmit_job {
     return;
   }
 
-  my $job_id = $hive->submit_job( $$instance{ cmd }, $main::analysis{$logic_name}{ hpc_param });
+  my $job_id = $hive->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -362,6 +362,7 @@ sub memory_stats {
 # 
 # Kim Brugger (24 Jun 2010)
 sub report {
+
   my %res = ();
 
   foreach my $jms_id ( @jms_ids ) {
@@ -370,8 +371,7 @@ sub report {
     $res{ $logic_name }{ $status }++;
 
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
-
-    
+   
 
     if ( $status == $FINISHED && $job_id != -1 ) {
       my $memory = int($hive->job_memory( $job_id )) || 0;
