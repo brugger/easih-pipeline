@@ -3,15 +3,26 @@ package EASIH::JMS::Hive::DetachedDummy;
 use EASIH::JMS::Hive;
 use EASIH::JMS;
 
-use strict;
+#use strict;
 use warnings;
 
 
 #@ISA = qw(EASIH::JMS::Hive);
+@ISA = qw(EASIH::JMS::Hive);
 
 
 #my $executer = "/home/kb468/projects/easih-flow/scripts/dummies/qstat.pl";
 my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/qstat.pl";
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub stats {
+  my ($self, $new_stats ) = @_;
+  %stats = %$new_stats if ( $new_stats );
+  return \%stats;
+}
 
 
 # 
@@ -23,7 +34,7 @@ sub submit_job {
   
   $cmd = -10;
 
-  open (my $qpipe, " $executer $cmd | ") || die "Could not open qsub-pipe: $!\n";
+  open (my $qpipe, " $executer  | ") || die "Could not open qsub-pipe: $!\n";
   my $job_id = <$qpipe>;
   close ( $qpipe);  
   $job_id =~ s/\n//;

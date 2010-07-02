@@ -14,11 +14,23 @@ our %stats;
 
 use base qw(EASIH::JMS::Hive);
 
-my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/local.pl";
+my $executer = "/home/brugger/easih-pipeline/scripts/dummies/local.pl";
 
 my $max_jobs = 8;
 my @running_jobs;
 my @waiting_jobs;
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub stats {
+  my ($self, $new_stats ) = @_;
+  %stats = %$new_stats if ( $new_stats );
+  return \%stats;
+}
+
 
 
 # 
@@ -62,7 +74,7 @@ sub job_status {
 
 
 sub create_child {
-  my ($self, $command) = @_;
+  my ( $command) = @_;
 
   my $pid;
   if ($pid = fork) {

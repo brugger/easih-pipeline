@@ -33,7 +33,7 @@ sub submit_job {
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
-  open (my $qpipe, " | qsub $limit -o q-logs > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
+  open (my $qpipe, " | qsub $limit > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $EASIH::JMS::cwd; $cmd";
   close( $qpipe );
   
@@ -95,8 +95,8 @@ sub job_status {
     return $EASIH::JMS::FAILED   if ( $res{exit_status} != 0);
   }
 
-  return $EASIH::JMS::RUNNING  if ( $res{job_state} eq "R");
-  return $EASIH::JMS::QUEUEING if ( $res{job_state} eq "Q");
+  return $EASIH::JMS::RUNNING  if ( $res{job_state} && $res{job_state} eq "R");
+  return $EASIH::JMS::QUEUEING if ( $res{job_state} && $res{job_state} eq "Q");
 
   return $EASIH::JMS::UNKNOWN;
 
