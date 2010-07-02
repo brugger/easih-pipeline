@@ -17,7 +17,7 @@ use EASIH::JMS::Hive;
 my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose        =   0;
-my $max_retry      =   0;
+my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
 my $current_logic_name;
@@ -196,7 +196,7 @@ sub submit_job {
   else {
 
     my $job_id = $hive->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
-
+    
     $$instance{ job_id } = $job_id;
   }    
 
@@ -362,6 +362,7 @@ sub memory_stats {
 # 
 # Kim Brugger (24 Jun 2010)
 sub report {
+
   my %res = ();
 
   foreach my $jms_id ( @jms_ids ) {
@@ -370,8 +371,13 @@ sub report {
     $res{ $logic_name }{ $status }++;
 
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+   
 
+<<<<<<< HEAD
     if ( $status == $FINISHED  && $job_id != -1) {
+=======
+    if ( $status == $FINISHED && $job_id != -1 ) {
+>>>>>>> f010f007bef0b4a64f16a115ec60c85b6f54c22b
       my $memory = int($hive->job_memory( $job_id )) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
       $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) if ( $status == $FINISHED );

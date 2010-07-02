@@ -123,7 +123,7 @@ sub job_memory {
   my ($self, $job_id ) = @_;
   
   my $mem_usage = $stats{$job_id}{memory };
-  
+
   if ( $mem_usage =~ /(\d+)kb/i) {
     $mem_usage = $1* 1000;
   }
