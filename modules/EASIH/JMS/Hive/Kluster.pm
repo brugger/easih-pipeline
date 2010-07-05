@@ -14,7 +14,6 @@ our %stats;
 
 use base qw(EASIH::JMS::Hive);
 
-my $executer = "/home/brugger/easih-pipeline/scripts/dummies/local.pl";
 
 my $max_jobs = 8;
 my @running_jobs;
@@ -40,7 +39,6 @@ sub stats {
 sub submit_job {
   my ($self, $cmd, $limit) = @_;
   
-  $cmd = $executer;
 
   my $cpid = create_child( $cmd );
 
