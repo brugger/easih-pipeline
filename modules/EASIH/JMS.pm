@@ -16,7 +16,7 @@ use EASIH::JMS::Hive;
 
 my $last_save      =   0;
 my $save_interval  = 300;
-my $verbose        =   0;
+my $verbose_level  =   0;
 my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
@@ -69,8 +69,39 @@ my %s2status = ( 1   =>  "Finished",
 # 
 # Kim Brugger (23 Apr 2010)
 sub verbosity {
-  $verbose = shift || 0;
+  $verbose_level = shift || 0;
 }
+
+
+
+# 
+# 
+# 
+# Kim Brugger (05 Jul 2010)
+sub verbose {
+  my ( $message, $level) = @_;
+  $level ||= 0;
+  
+  return if ( $level > $verbose_level);
+  $message =~ s/\Z//;
+  print " ::::" . " $message\n";
+
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub fail {
+  my ($message ) = @_;
+
+  print STDERR "ERROR :: $message\n";
+  store_state();
+  exit;
+  
+}
+
 
 
 # 
@@ -83,7 +114,7 @@ sub hive {
   if ( $hive ) {
     # strip away the the expected class
     $hive =~ s/EASIH::JMS::Hive:://;
-    # and append it (again);
+    # and (re)append it (again);
     $hive = "EASIH::JMS::Hive::".$hive;
   }
 
@@ -116,10 +147,11 @@ sub save_interval {
 #
 # Kim Brugger (04 May 2010)
 sub check_n_store_state {
+
+  return if ( $save_interval == -1 );
   
   my $now = Time::HiRes::gettimeofday();
-  store_state() if ( $now - $last_save > $save_interval );
-  
+  store_state() if ($now - $last_save > $save_interval );
 }
 
 
@@ -164,7 +196,7 @@ sub submit_job {
   my $tmp_file = EASIH::JMS::tmp_file();
 
   if ( $dry_run ) {
-    print "$cmd using $hive\n";
+    verbose("$cmd using $hive\n", 0);
     return;
   }
 
@@ -176,13 +208,13 @@ sub submit_job {
   if (@retained_jobs && $max_jobs > 0 && $max_jobs > $jobs_submitted) {
     push @retained_jobs, [ $cmd, $output, $current_logic_name];
     my $params = shift @retained_jobs;
-#    print "Queued/unqueued a job ( ". @retained_jobs . " jobs retained)\n";
+    verbose("Queued/unqueued a job ( ". @retained_jobs . " jobs retained)\n", 20);
     ($cmd, $output, $current_logic_name)= (@$params);
-#    print " PARAMS :::     ($cmd, $output, $current_logic_name) \n";
+    verbose(" PARAMS :::     ($cmd, $output, $current_logic_name) \n", 20);
   }
   elsif ($max_jobs > 0 && $max_jobs <= $jobs_submitted ) {
     push @retained_jobs, [ $cmd, $output, $current_logic_name];
-#    print "Retained a job ( ". @retained_jobs . " jobs retained)\n";
+    verbose("Retained a job ( ". @retained_jobs . " jobs retained)\n", 20);
     return;
   };
 
@@ -192,8 +224,6 @@ sub submit_job {
 		   command     => $cmd,
 		   output      => $output,
 		   logic_name  => $current_logic_name};
-
-#  print "$jms_id ::: " . Dumper( $instance );
 
   if ( $system ) {
     eval { system "$cmd" };
@@ -233,7 +263,7 @@ sub resubmit_job {
   my $logic_name = $$instance{logic_name};
 
   if ( $dry_run ) {
-    print "echo 'cd $cwd; $$instance{command}' | qsub $main::analysis{$logic_name}{ hpc_param } \n";
+    verbose("echo 'cd $cwd; $$instance{command}' | qsub $main::analysis{$logic_name}{ hpc_param } \n", 20);
     return;
   }
 
@@ -245,6 +275,71 @@ sub resubmit_job {
   $jobs_submitted++;      
 
 }
+
+
+# 
+# 
+# 
+# Kim Brugger (05 Jul 2010)
+sub format_memory {
+  my ( $memory ) = @_;
+
+  if ( ! defined $memory ) {
+    return "N/A";
+  }
+  else {
+    if ($memory > 1000000000 ) {
+      return sprintf("%.2fGB",$memory / 1000000000);
+    }
+    elsif ($memory  > 1000000 ) {
+      return sprintf("%.2fMB",$memory / 1000000);
+    }
+    elsif ($memory  > 1000 ) {
+      return sprintf("%.2fKB",$memory / 1000);
+    }
+  }
+  
+  return "N/A";
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (05 Jul 2010)
+sub format_time {
+  my ( $runtime ) = @_;
+  
+  return "N/A" if ( ! defined $runtime);
+
+  my $res;
+  my ($hour, $min, $sec) = (0,0,0);
+  $hour = int( $runtime / 3600);
+  $runtime -= 3600*$hour; 
+  $min = int( $runtime / 60);
+  $runtime -= 60*$min;
+  $sec = int( $runtime );
+  return sprintf("%02d:%02d:%02d", $hour, $min, $sec);
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (05 Jul 2010)
+sub get_timestamp {
+  
+  use Sys::Hostname;
+  my $host = hostname;
+
+  use POSIX 'strftime';
+  my $time = strftime('%d/%m/%y %H.%M', localtime);
+  return "[$time \@$host]\n" . "-"x30 . "\n";
+
+}
+
+
 
 # 
 # 
@@ -260,47 +355,19 @@ sub report {
     $res{ $logic_name }{ $status }++;
     $res{ $logic_name }{ failed } += ($jms_hash{ $jms_id }{ failed } || 0);
 
-
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     if ( $job_id != -1 ) {
       my $memory = int($hive->job_memory( $job_id )) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
-      $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id ));
+      $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) || 0;
     }
-
-
   }
 
   return if ( keys %res == 0);
 
-  my $report = "Run usage statistics:\n";
+  my $report = get_timestamp(). "Run statistics:\n";
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
-    if ( ! defined $res{ $logic_name }{ memory } ) {
-      $res{ $logic_name }{ memory } = "N/A";
-    }
-    else {
-      if ($res{ $logic_name }{ memory } > 1000000000 ) {
-	$res{ $logic_name }{ memory } = sprintf("%.2fGB",$res{ $logic_name }{ memory }/1000000000);
-      }
-      elsif ($res{ $logic_name }{ memory } > 1000000 ) {
-	$res{ $logic_name }{ memory } = sprintf("%.2fMB",$res{ $logic_name }{ memory }/1000000);
-      }
-      elsif ($res{ $logic_name }{ memory } > 1000 ) {
-	$res{ $logic_name }{ memory } = sprintf("%.2fKB",$res{ $logic_name }{ memory }/1000);
-      }
-    }
-
-    $res{ $logic_name }{ runtime } ||= 0;
-
-    my ($hour, $min, $sec) = (0,0,0);
-    $hour = int($res{ $logic_name }{ runtime }/3600);
-    $res{ $logic_name }{ runtime } -= 3600*$hour; 
-    $min = int($res{ $logic_name }{ runtime }/60);
-    $res{ $logic_name }{ runtime } -= 60*$min;
-    $sec = int($res{ $logic_name }{ runtime });
-    $res{ $logic_name }{ runtime } = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
-
     my $queue_stats;
 
     $queue_stats .= sprintf("%02d/%02d/",($res{ $logic_name }{ $FINISHED } || 0),($res{ $logic_name }{ $RUNNING  } || 0));
@@ -309,15 +376,99 @@ sub report {
     $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
     $queue_stats .= sprintf("%02d/%02d",$sub_other, ($res{ $logic_name }{ failed  } || 0));
 
-
-    $report .= sprintf("%-15s ||  %8s  || %10s || $queue_stats\n",$logic_name,$res{ $logic_name }{ runtime },  $res{ $logic_name }{ memory });
+    $report .= sprintf("%-15s ||  %8s  || %10s || $queue_stats\n", $logic_name,
+		       format_time($res{ $logic_name }{ runtime }), format_memory($res{ $logic_name }{ memory }));
   }
 
-  use POSIX 'strftime';
-  my $time = strftime('%m/%d/%y %H.%M', localtime);
-  print "[$time]\n";
-  print "-"x30 . "\n";
-  print $report;
+  return $report;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub total_runtime {
+
+  my $runtime = 0;
+  
+  foreach my $jms_id ( @jms_ids ) {
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+   
+    next if ( $job_id == -1 );
+
+    $runtime += int($hive->job_runtime( $job_id )) || 0;
+  }
+
+  return sprintf("Total runtime: %8s\n", format_time( $runtime ));
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub full_report {
+
+  my $report = get_timestamp();
+
+  my %printed_logic_name = ();
+
+  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } @jms_ids ) {   
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+
+    if ( ! $printed_logic_name{ $logic_name } ) {
+      $report .= "| $logic_name\n";
+      $report .=  "-="x10 . "-\n";
+      $printed_logic_name{ $logic_name }++;
+    }
+
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+
+    my %status2name = ( $FINISHED    => "Finished",
+			$FAILED      => "Failed",
+			$RUNNING     => "Running",
+			$QUEUEING    => "Queueing",
+			$RESUBMITTED => "Re-submitted",
+			$SUBMITTED   => "Submitted",
+			$UNKNOWN     => "Unknown" );
+    
+    $report .= sprintf("%3d/%-5d\t%12s\tfailures: %d\n", $jms_id, $job_id, $status2name{ $status }, $jms_hash{ $jms_id }{ failed } || 0);
+
+    if ( $job_id != -1 ) {
+      $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
+    }
+    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, $jms_hash{ $jms_id }{ output });
+  }
+
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (05 Jul 2010)
+sub mail_report {
+  my ( $to, $subject, $extra) = @_;
+
+  open(my $mail, " | mail $to -s '[easih-pipeline] $subject'") || die "Could not open mail-pipe: $!\n";
+
+  if ( $no_restart ) {
+    print $mail "ERROR :: The pipeline was unsucessful with $no_restart jobs not being able to finish\n";
+    print $mail "ERROR :: This might have interrupted the pipeline flow as well\n\n";
+  }
+
+  print $mail report() . "\n\n";
+  print $mail total_runtime();
+  $0 =~ s/.*\///;
+
+  print $mail "Running directory: $cwd, Freeze file: $0.freeze\n";
+
+  print $mail $extra. "\n\n";
+  
+  print $mail full_report(). "\n\n";
+  close( $mail );
 }
 
 
@@ -335,9 +486,8 @@ sub check_jobs {
     # Only look at the jobs we are currently tracking
     next if ( ! $jms_hash{ $jms_id }{ tracking } );
 
-    if ( ! $jms_hash{ $jms_id }{ job_id } ) {
-      print "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
-      die;
+    if ( ! defined $jms_hash{ $jms_id }{ job_id } ) {
+      die "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
     }
  
     my $status;
@@ -357,11 +507,11 @@ sub check_jobs {
       $jobs_submitted--;
       $jms_hash{ $jms_id }{ failed }++;
       if ( $jms_hash{ $jms_id }{ failed } < $max_retry ) {
-	print "Failed, resubmitting job\n";
+	verbose("Failed, resubmitting job\n", 3);
 	resubmit_job( $jms_id );
       }
       else { 
-	print "Cannot resubmit job ($jms_hash{ $jms_id }{ failed } < $max_retry)\n";
+	verbose("Cannot resubmit job ($jms_hash{ $jms_id }{ failed } < $max_retry)\n", 3);
 	$no_restart++;
       }
     }
@@ -390,36 +540,7 @@ sub reset {
 }
 
 
-# 
-# 
-# 
-# Kim Brugger (26 Apr 2010)
-sub print_states {
 
-  foreach my $key ( keys %main::analysis ) {
-    if ( $main::analysis{$key}{state}) {
-      print "$key ==> $main::analysis{$key}{state}\n";
-    }
-    else {
-      print "$key ==> no state\n";
-    }
-  }
-}
-
-
-
-# 
-# 
-# 
-# Kim Brugger (23 Apr 2010)
-sub fail {
-  my ($message ) = @_;
-
-  print STDERR "ERROR:: $message\n";
-  store_state();
-  exit;
-  
-}
 
 
 # 
@@ -431,7 +552,6 @@ sub tmp_file {
   $postfix ||= "";
   $keep_file || 0;
   
-  print  "mkdir tmp" if ( ! -d './tmp');
   system "mkdir tmp" if ( ! -d './tmp');
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
@@ -455,17 +575,6 @@ sub next_analysis {
   return $main::flow{ $logic_name} || undef;
 }
 
-
-# 
-# 
-# 
-# Kim Brugger (27 Apr 2010)
-sub tag_for_deletion {
-  my (@files) = @_;
-
-  push @delete_files, @files;
-  
-}
 
 
 
@@ -528,7 +637,7 @@ sub fetch_active_jobs {
 #  @active_jobs = sort { $a <=> $b } @active_jobs;
 #  @active_jobs = sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } @active_jobs;
 
-#  print "@active_jobs\n";
+  verbose("@active_jobs\n", 10);
 
   return @active_jobs;
 }
@@ -540,11 +649,13 @@ sub fetch_active_jobs {
 # 
 # Kim Brugger (18 May 2010)
 sub fetch_jobs {
-  my ( $logic_name ) = @_;
+  my ( @logic_names ) = @_;
+
+  print " --> @logic_names \n";
 
   my @jobs;
   foreach my $jms_id ( @jms_ids ) {    
-    push @jobs, $jms_id if ( $jms_hash{ $jms_id }{ logic_name } eq $logic_name );
+    push @jobs, $jms_id if ( grep(/$jms_hash{ $jms_id }{ logic_name }/, @logic_names) );
   }
 
   return @jobs;
@@ -656,8 +767,15 @@ sub run {
 	    
 	    next if (depends_on_active_jobs( $next_logic_name));
 
+	    my @depends_on;
+	    foreach my $analysis ( keys %main::flow ) {
+	      push @depends_on, $analysis if ( $main::flow{ $analysis } eq $next_logic_name );
+	    }
+
+	    my @depend_jobs = fetch_jobs( @depends_on);
+
 	    my $all_threads_done = 1;
-            foreach my $ljms_id ( fetch_jobs( $logic_name ) ) {
+            foreach my $ljms_id ( @depend_jobs ) {
               if ( $jms_hash{ $ljms_id }{ status } != $FINISHED ) {
 		$all_threads_done = 0;
 		last;
@@ -667,12 +785,12 @@ sub run {
 	    if ( $all_threads_done ) {
 	      # collect inputs, and set tracking to 0
 	      my @inputs;
-	      foreach my $ljms_id ( fetch_jobs( $logic_name ) ) {
+	      foreach my $ljms_id ( @depend_jobs ) {
 		$jms_hash{ $ljms_id }{ tracking } = 0;
 		push @inputs, $jms_hash{ $ljms_id }{ output };
 	      }
 
-	      print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n";
+	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
 	      run_analysis( $next_logic_name, @inputs);
 	      $started++;
 	    }
@@ -680,7 +798,7 @@ sub run {
 	  }
 	  # unsynced part of the pipeline, run the next job.
           else {
-	    print " $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n";
+	    verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
             run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
 	    $started++;
           }
@@ -704,15 +822,20 @@ sub run {
 
 
     check_n_store_state();
-    report();    
+    print report();
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
     check_jobs();
   }
+  print total_runtime();
+
+  if ( $no_restart ) {
+    print "The pipeline was unsucessful with $no_restart jobs not being able to finish\n";
+  }
   
 
-#  print "Retaineded jobs: ". @retained_jobs . " (should be 0)\n";
+  verbose( "Retaineded jobs: ". @retained_jobs . " (should be 0)\n", 5);
 
 }
 
@@ -837,13 +960,12 @@ sub store_state {
     $filename = "$0.$$";
   }
   
-  print "JMS :: Storing state in: '$filename'\n";
+  verbose("JMS :: Storing state in: '$filename'\n", 2);
 
   my $blob = {delete_files       => \@delete_files,
 	      jms_ids            => \@jms_ids,
 	      jms_hash           => \%jms_hash,
 	      save_interval      => $save_interval,
-	      verbose            => $verbose,
 	      last_save          => $last_save,
 	      save_interval      => $save_interval,
 	      max_retry          => $max_retry,
@@ -882,7 +1004,7 @@ sub restore_state {
     $filename = "$0.freeze";
   }
   
-  print "JMS :: Re-storing state from: '$filename'\n";
+  verbose("JMS :: Re-storing state from: '$filename'\n", 2);
 
   my $blob = Storable::retrieve( $filename);
 
@@ -891,7 +1013,6 @@ sub restore_state {
   %jms_hash           = %{$$blob{jms_hash}};
 
   $save_interval      = $$blob{save_interval};
-  $verbose            = $$blob{verbose};
 
   $last_save          = $$blob{last_save};
   $save_interval      = $$blob{save_interval};
