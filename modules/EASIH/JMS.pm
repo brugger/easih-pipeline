@@ -358,9 +358,9 @@ sub report {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     if ( $job_id != -1 ) {
-      my $memory = int($hive->job_memory( $job_id )) || 0;
+      my $memory = $hive->job_memory( $job_id ) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
-      $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) || 0;
+      $res{ $logic_name }{ runtime } += $hive->job_runtime( $job_id ) || 0;
     }
   }
 
@@ -439,9 +439,10 @@ sub full_report {
     if ( $job_id != -1 ) {
       $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
     }
-    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, $jms_hash{ $jms_id }{ output });
+    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
   }
 
+  return $report;
 }
 
 
@@ -688,6 +689,8 @@ sub analysis_dependencies {
 # Kim Brugger (05 Jul 2010)
 sub depends_on_active_jobs {
   my ($logic_name) = @_;
+
+  return 0 if ( ! $dependencies{ $logic_name });
 
   my %dependency;
   map { $dependency{ $_ }++ } @{$dependencies{ $logic_name }};
@@ -1028,7 +1031,7 @@ sub restore_state {
   %main::flow         = %{$$blob{flow}};
   %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
-  %dependencies       = %{$$blob{dependencies}};
+  %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
   hive($$blob{hive});
   $hive->stats($$blob{stats});
