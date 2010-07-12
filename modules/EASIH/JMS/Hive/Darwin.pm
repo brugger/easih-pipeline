@@ -126,6 +126,8 @@ sub job_memory {
   
   my $mem_usage = $stats{$job_id}{memory };
 
+  return 0 if ( ! defined $mem_usage);
+
   if ( $mem_usage =~ /(\d+)kb/i) {
     $mem_usage = $1* 1000;
   }
