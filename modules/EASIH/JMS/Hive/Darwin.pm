@@ -121,6 +121,8 @@ sub job_runtime {
 # Kim Brugger (27 May 2010)
 sub job_memory {
   my ($self, $job_id ) = @_;
+
+  return undef if ( ! defined $mem_usage);
   
   my $mem_usage = $stats{$job_id}{memory };
 
@@ -133,8 +135,8 @@ sub job_memory {
   elsif ( $mem_usage =~ /(\d+)gb/i) {
     $mem_usage = $1* 1000000000;
   }
-
   $stats{$job_id}{memory} = $mem_usage;
+
   return $stats{$job_id}{memory};
 }
 

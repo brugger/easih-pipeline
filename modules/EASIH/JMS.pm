@@ -358,9 +358,9 @@ sub report {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     if ( $job_id != -1 ) {
-      my $memory = int($hive->job_memory( $job_id )) || 0;
+      my $memory = $hive->job_memory( $job_id ) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
-      $res{ $logic_name }{ runtime } += int($hive->job_runtime( $job_id )) || 0;
+      $res{ $logic_name }{ runtime } += $hive->job_runtime( $job_id ) || 0;
     }
   }
 
