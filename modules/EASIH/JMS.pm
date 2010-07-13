@@ -983,8 +983,8 @@ sub store_state {
 	      current_logic_name => $current_logic_name,
 	      #main file variables.
 	      argv               => \@argv,
-	      flow               => \%main::flow,
-	      analysis           => \%main::analysis,
+#	      flow               => \%main::flow,
+#	      analysis           => \%main::analysis,
 	      analysis_order     => \%analysis_order,
 	      dependencies       => \%dependencies};
 
@@ -1028,8 +1028,8 @@ sub restore_state {
   $current_logic_name = $$blob{current_logic_name};
 
   @main::ARGV         = @{$$blob{argv}};
-  %main::flow         = %{$$blob{flow}};
-  %main::analysis     = %{$$blob{analysis}};
+#  %main::flow         = %{$$blob{flow}};
+#  %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
   %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
