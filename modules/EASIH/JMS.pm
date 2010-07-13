@@ -464,7 +464,7 @@ sub mail_report {
   print $mail total_runtime();
   $0 =~ s/.*\///;
 
-  print $mail "Running directory: $cwd, Freeze file: $0.freeze\n";
+  print $mail "Running directory: $cwd, Freeze file: $0.$$\n";
 
   print $mail $extra. "\n\n";
   
