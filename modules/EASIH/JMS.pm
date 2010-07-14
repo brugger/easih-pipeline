@@ -891,7 +891,10 @@ sub _pm_to_file {
 sub function_module {
   my ($function, $logic_name) = @_;
 
-  die "$logic_name does not point to a function\n" if ( ! $function );
+  if ( ! $function ) {
+    store_state();
+    die "$logic_name does not point to a function\n";
+  }
   
   
   my $module = 'main';
