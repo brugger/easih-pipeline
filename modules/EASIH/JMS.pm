@@ -579,27 +579,6 @@ sub next_analysis {
 
 
 
-
-# 
-# 
-# 
-# Kim Brugger (26 Apr 2010)
-sub delete_hpc_logs {
-  
-  my @files;
-  foreach my $jms_id ( @jms_ids ) {
-    
-    my ($host, $path) = split(":", $jms_hash{$jms_id}{ hpc_stats }{Error_Path});
-    push @files, $path if ( $path && -f $path);
-    ($host, $path) = split(":", $jms_hash{$jms_id}{ hpc_stats }{Output_Path});
-    push @files, $path if ( -f $path);
-
-  }    
-
-  system "rm @files";
-}
-
-
 # 
 # 
 # 
@@ -717,6 +696,13 @@ sub depends_on_active_jobs {
 # Kim Brugger (18 May 2010)
 sub run {
   my (@start_logic_names) = @_;
+
+  # Just to make sure that the script is setup as it should be
+  # the overhead of doing this is close to null, and it saves 
+  # time if things does not crash.
+  validate_flow(@start_logic_names);
+
+
 
   while (1) {
 
@@ -901,10 +887,60 @@ sub function_module {
     
   ($module, $function) = ($1, $2) if ( $function =~ /(.*)::(\w+)/);
   die "ERROR :::: $module is not loaded!!!\n" if ( ! is_loaded( $module ));
-  die "ERROR :::: $logic_name points to $function, but this does not exist!\n" if ( ! $module->can( $function ) );
+  die "ERROR :::: $logic_name points to $function, but this function does not exist!\n" if ( ! $module->can( $function ) );
 
   return $module . "::" . $function;
 }
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub print_flow {
+  my (@start_logic_names) = @_;
+
+  die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
+
+  foreach my $current_logic_name ( @start_logic_names ) {
+
+    print "\nStart test flow for $current_logic_name:\n";
+    print "--------------------------------------------------\n";
+    my $next_logic_name   = $main::flow{ $current_logic_name};
+    while (1) {
+      
+      if ( ! $main::analysis{$current_logic_name} ) {
+	print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
+      }
+      else {
+	my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+	print "$current_logic_name ==>  $function\n";
+      }
+      
+      if ( ! $main::flow{ $current_logic_name}) {
+	last;
+      }
+      else {
+
+	if ($main::analysis{$next_logic_name}{ sync } ) {
+	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
+	}
+	else {
+	  print "$current_logic_name --> $next_logic_name\n";
+	}
+
+	$current_logic_name = $next_logic_name;
+	$next_logic_name    = $main::flow{ $current_logic_name};
+      }
+    }
+    print "--------------------------------------------------\n";
+#    print "end of flow\n";
+  }
+
+  print "\nEnd of validate_run\n";
+  
+}
+
 
 
 # 
@@ -915,34 +951,29 @@ sub validate_flow {
   my (@start_logic_names) = @_;
 
   die "EASIH::JMS::validate_flow not called with a logic_name\n" if (! @start_logic_names);
+  my $errors;
 
-  foreach my $start_logic_name ( @start_logic_names ) {
+  foreach $current_logic_name ( @start_logic_names ) {
 
-    print "Start test flow for $start_logic_name:\n";
-    $current_logic_name ||= $start_logic_name;
-    my $next_logic_name   = $main::flow{ $start_logic_name};
+    my $next_logic_name   = $main::flow{ $current_logic_name};
     while (1) {
       
       if ( ! $main::analysis{$current_logic_name} ) {
-	print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
+	die "ERROR :::: No infomation about '$current_logic_name' in the main::analysis hash\n";
+	$errors++
       }
       else {
-	my $function = function_module($main::analysis{$current_logic_name}{ function });
-	print "Will be running $function\n";
+	my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
       }
       
-      
-      if ( ! $main::flow{ $next_logic_name}) {
-	print "No more steps in this flow...\n";
+      if ( ! $main::flow{ $current_logic_name}) {
 	last;
       }
       else {
-	print "Going from $current_logic_name --> $next_logic_name\n";
 	$current_logic_name = $next_logic_name;
 	$next_logic_name    = $main::flow{ $current_logic_name};
       }
     }
-    print "end of flow\n";
   }
 
   print "End of validate_run\n";
@@ -1055,10 +1086,6 @@ BEGIN {
 
 
 1;
-
-
-
-
 
 
 

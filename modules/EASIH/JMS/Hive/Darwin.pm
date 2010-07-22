@@ -1,14 +1,14 @@
 package EASIH::JMS::Hive::Darwin;
 
-#use EASIH::JMS::Hive;
-use EASIH::JMS;
-
-#use strict;
+use strict;
 use warnings;
-@ISA = qw(EASIH::JMS::Hive);
 
 
-#my %stats;
+use EASIH::JMS;
+use base(qw(EASIH::JMS::Hive));
+
+
+my %stats;
 
 # 
 # 
@@ -122,9 +122,10 @@ sub job_runtime {
 sub job_memory {
   my ($self, $job_id ) = @_;
 
-  return undef if ( ! defined $mem_usage);
   
   my $mem_usage = $stats{$job_id}{memory };
+
+  return undef if ( ! defined $mem_usage);
 
   return 0 if ( ! defined $mem_usage);
 

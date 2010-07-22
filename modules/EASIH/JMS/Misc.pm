@@ -24,6 +24,7 @@ sub find_program {
 
   my @paths = ("/home/easih/bin/",
 	       "/home/kb468/bin/",
+	       "/home/kb468/easih-toolbox/scripts/",
 	       "/usr/local/bin");
   
   foreach my $path ( @paths ) {

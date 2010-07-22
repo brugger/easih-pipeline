@@ -3,12 +3,14 @@ package EASIH::JMS::Hive::DetachedDummy;
 use EASIH::JMS::Hive;
 use EASIH::JMS;
 
-#use strict;
+use strict;
 use warnings;
 
 
-#@ISA = qw(EASIH::JMS::Hive);
-@ISA = qw(EASIH::JMS::Hive);
+use base(qw(EASIH::JMS::Hive));
+
+
+my %stats;
 
 
 #my $executer = "/home/kb468/projects/easih-flow/scripts/dummies/qstat.pl";
