@@ -181,7 +181,7 @@ sub cwd {
 # 
 # Kim Brugger (05 Jul 2010)
 sub submit_system_job {
-  my ($cmd, $output, $system) = @_;
+  my ($cmd, $output) = @_;
   submit_job($cmd, $output, 1);
 }
 
