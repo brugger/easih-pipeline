@@ -585,8 +585,25 @@ sub tmp_file {
 # Kim Brugger (17 May 2010)
 sub next_analysis {
   my ( $logic_name ) = @_;
+  
+  my @res;
 
-  return $main::flow{ $logic_name} || undef;
+#  print "next_analysis( $logic_name )\n";
+
+  my $next = $main::flow{ $logic_name} || undef;
+#  print Dumper( $next );
+  if ( ref ( $next ) eq "ARRAY" ) {
+    @res = @$next;
+  }
+  elsif( $next ) {
+    push @res, $next;
+  }
+  else {
+#    return undef;
+  }
+  
+
+  return \@res if (@res);
 }
 
 
@@ -691,7 +708,7 @@ sub waiting_for_analysis {
   map { $done{ $_ }++ } @done_analyses;
   foreach my $dependency ( @{$dependencies{ $logic_name }} ) {
     if ( ! $done{ $dependency} ) {
-      die;
+      print "Waiting for $dependency\n";
       return 1;
     }
   }
@@ -920,13 +937,14 @@ sub function_module {
     store_state();
     die "$logic_name does not point to a function\n";
   }
+
   
   
   my $module = 'main';
     
   ($module, $function) = ($1, $2) if ( $function =~ /(.*)::(\w+)/);
   die "ERROR :::: $module is not loaded!!!\n" if ( ! is_loaded( $module ));
-  die "ERROR :::: $logic_name points to $function, but this function does not exist!\n" if ( ! $module->can( $function ) );
+  die "ERROR :::: $logic_name points to $module\:\:$function, but this function does not exist!\n" if ( ! $module->can( $function ) );
 
   return $module . "::" . $function;
 }
@@ -941,35 +959,55 @@ sub print_flow {
 
   die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
 
+  my @analyses;
+
+
+  foreach my $start_logic_name ( @start_logic_names ) {
+    analysis_dependencies( $start_logic_name );
+  }
+
   foreach my $current_logic_name ( @start_logic_names ) {
 
     print "\nStart test flow for $current_logic_name:\n";
     print "--------------------------------------------------\n";
-    my $next_logic_name   = $main::flow{ $current_logic_name};
-    while (1) {
+    my $next_logic_names   = next_analysis( $current_logic_name );
+    while (@$next_logic_names) {
       
-      if ( ! $main::analysis{$current_logic_name} ) {
-	print "ERROR :::: No infomation on on $current_logic_name in main::analysis\n";
-      }
-      else {
-	my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
-	print "$current_logic_name ==>  $function\n";
-      }
-      
-      if ( ! $main::flow{ $current_logic_name}) {
-	last;
-      }
-      else {
+      foreach my $next_logic_name ( @$next_logic_names ) {
 
-	if ($main::analysis{$next_logic_name}{ sync } ) {
-#	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
+	if ( ! $main::analysis{$current_logic_name} ) {
+	  die "ERROR :::: No infomation on $current_logic_name in main::analysis\n";
 	}
 	else {
-#	  print "$current_logic_name --> $next_logic_name\n";
+	  my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+	  print "$current_logic_name ==>  $function\n";
 	}
+      
+	if ( ! next_analysis( $current_logic_name)) {
+	  last;
+	}
+	else {
+	  
+	  if ($main::analysis{$next_logic_name}{ sync } ) {
+	    print "$current_logic_name --> $next_logic_name (Synced!!)\n";
+	  }
+	  else {
+	    print "$current_logic_name --> $next_logic_name\n";
+	  }
 
-	$current_logic_name = $next_logic_name;
-	$next_logic_name    = $main::flow{ $current_logic_name};
+	  push @analyses, $current_logic_name;
+	  if ( !waiting_for_analysis($next_logic_name, @analyses)) {
+	    $current_logic_name = $next_logic_name;
+	    my $next = next_analysis( $current_logic_name);
+	    if ( ! $next ) {
+	      next;
+	    }
+	    push @$next_logic_names, @$next if ($next);
+	  }
+	  else {
+#	    print ".\n";
+	  }
+	}
       }
     }
     print "--------------------------------------------------\n";
