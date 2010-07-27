@@ -439,7 +439,7 @@ sub full_report {
     if ( $job_id != -1 ) {
       $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
     }
-    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
+#    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
   }
 
   return $report;
@@ -452,6 +452,8 @@ sub full_report {
 # Kim Brugger (05 Jul 2010)
 sub mail_report {
   my ( $to, $subject, $extra) = @_;
+
+  $subject = "$subject (Error)" if ($no_restart);
 
   open(my $mail, " | mail $to -s '[easih-pipeline] $subject'") || die "Could not open mail-pipe: $!\n";
 
@@ -631,7 +633,7 @@ sub fetch_active_jobs {
 sub fetch_jobs {
   my ( @logic_names ) = @_;
 
-  print " --> @logic_names \n";
+#  print " --> @logic_names \n";
 
   my @jobs;
   foreach my $jms_id ( @jms_ids ) {    
@@ -923,10 +925,10 @@ sub print_flow {
       else {
 
 	if ($main::analysis{$next_logic_name}{ sync } ) {
-	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
+#	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
 	}
 	else {
-	  print "$current_logic_name --> $next_logic_name\n";
+#	  print "$current_logic_name --> $next_logic_name\n";
 	}
 
 	$current_logic_name = $next_logic_name;
