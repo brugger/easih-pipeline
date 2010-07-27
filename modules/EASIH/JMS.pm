@@ -89,6 +89,17 @@ sub verbose {
 }
 
 
+
+# 
+# disable the store function
+# 
+# Kim Brugger (27 Jul 2010)
+sub no_store {
+  $use_storing = 0;
+}
+
+
+
 # 
 # 
 # 
@@ -453,7 +464,7 @@ sub full_report {
 sub mail_report {
   my ( $to, $subject, $extra) = @_;
 
-  $subject = "$subject (Error)" if ($no_restart);
+  $subject = "$subject (Error)" if ( $no_restart );
 
   open(my $mail, " | mail $to -s '[easih-pipeline] $subject'") || die "Could not open mail-pipe: $!\n";
 
@@ -651,17 +662,43 @@ sub fetch_jobs {
 sub analysis_dependencies {
   my ( $logic_name ) = @_;
 
-  while ( my $next_logic_name = next_analysis( $logic_name ) ) {
-    push @{$dependencies{ $next_logic_name }}, $logic_name;
-    push @{$dependencies{ $next_logic_name }}, @{$dependencies{ $logic_name }} if ($dependencies{ $logic_name });
+  while ( my $next_logic_names = next_analysis( $logic_name ) ) {
+    foreach my $next_logic_name ( @$next_logic_names) {
+      push @{$dependencies{ $next_logic_name }}, $logic_name;
+      push @{$dependencies{ $next_logic_name }}, @{$dependencies{ $logic_name }} if ($dependencies{ $logic_name });
     
     # make sure a logic_name only occurs once.
-    my %saw;
-    @{$dependencies{ $next_logic_name }} = grep(!$saw{$_}++, @{$dependencies{ $next_logic_name }});
-    $logic_name = $next_logic_name;
+      my %saw;
+      @{$dependencies{ $next_logic_name }} = grep(!$saw{$_}++, @{$dependencies{ $next_logic_name }});
+      $logic_name = $next_logic_name;
+    }
   }
 }
 
+
+
+
+# 
+# for print_flow, so we can fake dependencies...
+# 
+# Kim Brugger (05 Jul 2010)
+sub waiting_for_analysis {
+  my ($logic_name, @done_analyses) = @_;
+
+  return 0 if ( ! $dependencies{ $logic_name });
+
+  my %done;
+  map { $done{ $_ }++ } @done_analyses;
+  foreach my $dependency ( @{$dependencies{ $logic_name }} ) {
+    if ( ! $done{ $dependency} ) {
+      die;
+      return 1;
+    }
+  }
+  
+
+  return 0;
+}
 
 
 # 
@@ -957,7 +994,7 @@ sub validate_flow {
 
   foreach $current_logic_name ( @start_logic_names ) {
 
-    my $next_logic_name   = $main::flow{ $current_logic_name};
+    my $next_logic_name   = next_analysis( $current_logic_name );
     while (1) {
       
       if ( ! $main::analysis{$current_logic_name} ) {
@@ -968,12 +1005,12 @@ sub validate_flow {
 	my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
       }
       
-      if ( ! $main::flow{ $current_logic_name}) {
+      if ( ! next_analysis( $current_logic_name)) {
 	last;
       }
       else {
 	$current_logic_name = $next_logic_name;
-	$next_logic_name    = $main::flow{ $current_logic_name};
+	$next_logic_name    = next_analysis( $current_logic_name );
       }
     }
   }
