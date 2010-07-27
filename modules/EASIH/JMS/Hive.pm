@@ -41,4 +41,11 @@ sub job_memory {
 
 
 
+sub stats {
+#  print "stats has not been implemented for the hive you are using!\n";
+  return 0;
+}
+
+
+
 1;
