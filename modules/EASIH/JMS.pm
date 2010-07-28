@@ -593,17 +593,23 @@ sub next_analysis {
   my $next = $main::flow{ $logic_name} || undef;
 #  print Dumper( $next );
   if ( ref ( $next ) eq "ARRAY" ) {
-    @res = @$next;
-  }
-  elsif( $next ) {
-    push @res, $next;
+#    print "$logic_name [[[[ $res[0] ]]]]\n";
+    return $$next[0];
+#    @res = @$next;
   }
   else {
-#    return undef;
+    return $next;
   }
+
+#   elsif( $next ) {
+# #    push @res, $next;
+#   }
+#   else {
+# #    return undef;
+#   }
   
 
-  return \@res if (@res);
+#   return \@res if (@res);
 }
 
 
@@ -679,8 +685,8 @@ sub fetch_jobs {
 sub analysis_dependencies {
   my ( $logic_name ) = @_;
 
-  while ( my $next_logic_names = next_analysis( $logic_name ) ) {
-    foreach my $next_logic_name ( @$next_logic_names) {
+  while ( my $next_logic_name = next_analysis( $logic_name ) ) {
+#    foreach my $next_logic_name ( @$next_logic_names) {
       push @{$dependencies{ $next_logic_name }}, $logic_name;
       push @{$dependencies{ $next_logic_name }}, @{$dependencies{ $logic_name }} if ($dependencies{ $logic_name });
     
@@ -688,7 +694,7 @@ sub analysis_dependencies {
       my %saw;
       @{$dependencies{ $next_logic_name }} = grep(!$saw{$_}++, @{$dependencies{ $next_logic_name }});
       $logic_name = $next_logic_name;
-    }
+#    }
   }
 }
 
@@ -961,7 +967,6 @@ sub print_flow {
 
   my @analyses;
 
-
   foreach my $start_logic_name ( @start_logic_names ) {
     analysis_dependencies( $start_logic_name );
   }
@@ -970,10 +975,10 @@ sub print_flow {
 
     print "\nStart test flow for $current_logic_name:\n";
     print "--------------------------------------------------\n";
-    my $next_logic_names   = next_analysis( $current_logic_name );
-    while (@$next_logic_names) {
+    my $next_logic_name   = next_analysis( $current_logic_name );
+    while ($next_logic_name) {
       
-      foreach my $next_logic_name ( @$next_logic_names ) {
+#      foreach my $next_logic_name ( @$next_logic_names ) {
 
 	if ( ! $main::analysis{$current_logic_name} ) {
 	  die "ERROR :::: No infomation on $current_logic_name in main::analysis\n";
@@ -998,16 +1003,16 @@ sub print_flow {
 	  push @analyses, $current_logic_name;
 	  if ( !waiting_for_analysis($next_logic_name, @analyses)) {
 	    $current_logic_name = $next_logic_name;
-	    my $next = next_analysis( $current_logic_name);
-	    if ( ! $next ) {
-	      next;
-	    }
-	    push @$next_logic_names, @$next if ($next);
+	     $next_logic_name = next_analysis( $current_logic_name);
+#	    if ( ! $next ) {
+#	      next;
+#	    }
+#	    push @$next_logic_names, @$next if ($next);
 	  }
 	  else {
 #	    print ".\n";
 	  }
-	}
+#	}
       }
     }
     print "--------------------------------------------------\n";
