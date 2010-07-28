@@ -588,28 +588,15 @@ sub next_analysis {
   
   my @res;
 
-#  print "next_analysis( $logic_name )\n";
-
   my $next = $main::flow{ $logic_name} || undef;
-#  print Dumper( $next );
   if ( ref ( $next ) eq "ARRAY" ) {
-#    print "$logic_name [[[[ $res[0] ]]]]\n";
-    return $$next[0];
-#    @res = @$next;
+    @res = @$next;
   }
-  else {
-    return $next;
+  elsif ( defined $next ) {
+    push @res, $next;
   }
-
-#   elsif( $next ) {
-# #    push @res, $next;
-#   }
-#   else {
-# #    return undef;
-#   }
   
-
-#   return \@res if (@res);
+  return @res;
 }
 
 
@@ -685,17 +672,24 @@ sub fetch_jobs {
 sub analysis_dependencies {
   my ( $logic_name ) = @_;
 
-  while ( my $next_logic_name = next_analysis( $logic_name ) ) {
-#    foreach my $next_logic_name ( @$next_logic_names) {
+
+  my @logic_names = next_analysis( $logic_name );
+
+  while ( $logic_name = shift @logic_names  ) {
+
+    my @next_logic_names = next_analysis( $logic_name );
+    next if ( ! @next_logic_names );
+    push @logic_names, @next_logic_names if (@next_logic_names);
+    foreach my $next_logic_name ( @next_logic_names) {
       push @{$dependencies{ $next_logic_name }}, $logic_name;
       push @{$dependencies{ $next_logic_name }}, @{$dependencies{ $logic_name }} if ($dependencies{ $logic_name });
     
     # make sure a logic_name only occurs once.
       my %saw;
       @{$dependencies{ $next_logic_name }} = grep(!$saw{$_}++, @{$dependencies{ $next_logic_name }});
-      $logic_name = $next_logic_name;
-#    }
+    }
   }
+
 }
 
 
@@ -714,7 +708,7 @@ sub waiting_for_analysis {
   map { $done{ $_ }++ } @done_analyses;
   foreach my $dependency ( @{$dependencies{ $logic_name }} ) {
     if ( ! $done{ $dependency} ) {
-      print "Waiting for $dependency\n";
+      print "$logic_name is waiting for $dependency\n";
       return 1;
     }
   }
@@ -961,6 +955,72 @@ sub function_module {
 # 
 # Kim Brugger (23 Apr 2010)
 sub print_flow {
+  my (@start_logic_names) = @_;
+
+  die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
+
+  my @analyses;
+
+  foreach my $start_logic_name ( @start_logic_names ) {
+    analysis_dependencies( $start_logic_name );
+  }
+
+  my @logic_names = @start_logic_names;
+
+  print "Starting with: @logic_names \n";
+  print "--------------------------------------------------\n";
+
+  
+  while ( $current_logic_name = shift @logic_names ) {
+
+    print "$current_logic_name queue: [@logic_names] \n";
+
+    push @analyses, $current_logic_name;
+
+    if ( ! $main::analysis{$current_logic_name} ) {
+      die "ERROR :::: No infomation on $current_logic_name in main::analysis\n";
+    }
+    else {
+      my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+      print "$current_logic_name ==>  $function\n";
+    }
+      
+    my @next_logic_names = next_analysis( $current_logic_name );
+
+    if ( @next_logic_names ) {
+      
+      foreach my $next_logic_name ( @next_logic_names ) {
+      
+	if ($main::analysis{$next_logic_name}{ sync } ) {
+	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
+	}
+	else {
+	  print "$current_logic_name --> $next_logic_name\n";
+	}
+
+	if ( waiting_for_analysis($next_logic_name, @analyses)) {
+#	  push @logic_names, $next_logic_name;
+	}
+	else {
+	  push @logic_names, $next_logic_name;
+	}
+      }
+    }
+    print "--------------------------------------------------\n";
+#    print "end of flow\n";
+  }
+
+  print "\nEnd of validate_run\n";
+  
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (23 Apr 2010)
+sub print_flow_old {
   my (@start_logic_names) = @_;
 
   die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
