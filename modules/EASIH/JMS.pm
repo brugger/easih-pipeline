@@ -935,7 +935,9 @@ sub function_module {
 
   if ( ! $function ) {
     store_state();
-    die "$logic_name does not point to a function\n";
+    use Carp;
+    
+    Carp::confess "$logic_name does not point to a function\n";
   }
 
   
@@ -978,7 +980,7 @@ sub print_flow {
     push @analyses, $current_logic_name;
 
     if ( ! $main::analysis{$current_logic_name} ) {
-      die "ERROR :::: No infomation on $current_logic_name in main::analysis\n";
+      die "ERROR :::: No information on $current_logic_name in main::analysis\n";
     }
     else {
       my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
@@ -1020,10 +1022,10 @@ sub print_flow {
 # 
 # 
 # Kim Brugger (23 Apr 2010)
-sub print_flow_old {
+sub validate_flow {
   my (@start_logic_names) = @_;
 
-  die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
+  die "EASIH::JMS::validate_flow not called with a logic_name\n" if (! @start_logic_names);
 
   my @analyses;
 
@@ -1031,51 +1033,38 @@ sub print_flow_old {
     analysis_dependencies( $start_logic_name );
   }
 
-  foreach my $current_logic_name ( @start_logic_names ) {
+  my @logic_names = @start_logic_names;
 
-    print "\nStart test flow for $current_logic_name:\n";
-    print "--------------------------------------------------\n";
-    my $next_logic_name   = next_analysis( $current_logic_name );
-    while ($next_logic_name) {
+  while ( $current_logic_name = shift @logic_names ) {
+
+    push @analyses, $current_logic_name;
+
+    if ( ! $main::analysis{$current_logic_name} ) {
+      die "ERROR :::: No information on $current_logic_name in main::analysis\n";
+    }
+    else {
+      my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+    }
       
-#      foreach my $next_logic_name ( @$next_logic_names ) {
+    my @next_logic_names = next_analysis( $current_logic_name );
 
-	if ( ! $main::analysis{$current_logic_name} ) {
-	  die "ERROR :::: No infomation on $current_logic_name in main::analysis\n";
+    if ( @next_logic_names ) {
+      
+      foreach my $next_logic_name ( @next_logic_names ) {
+      
+	if ($main::analysis{$next_logic_name}{ sync } ) {
 	}
 	else {
-	  my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
-	  print "$current_logic_name ==>  $function\n";
 	}
-      
-	if ( ! next_analysis( $current_logic_name)) {
-	  last;
+
+	if ( waiting_for_analysis($next_logic_name, @analyses)) {
+#	  push @logic_names, $next_logic_name;
 	}
 	else {
-	  
-	  if ($main::analysis{$next_logic_name}{ sync } ) {
-	    print "$current_logic_name --> $next_logic_name (Synced!!)\n";
-	  }
-	  else {
-	    print "$current_logic_name --> $next_logic_name\n";
-	  }
-
-	  push @analyses, $current_logic_name;
-	  if ( !waiting_for_analysis($next_logic_name, @analyses)) {
-	    $current_logic_name = $next_logic_name;
-	     $next_logic_name = next_analysis( $current_logic_name);
-#	    if ( ! $next ) {
-#	      next;
-#	    }
-#	    push @$next_logic_names, @$next if ($next);
-	  }
-	  else {
-#	    print ".\n";
-	  }
-#	}
+	  push @logic_names, $next_logic_name;
+	}
       }
     }
-    print "--------------------------------------------------\n";
 #    print "end of flow\n";
   }
 
@@ -1085,11 +1074,12 @@ sub print_flow_old {
 
 
 
+
 # 
 # 
 # 
 # Kim Brugger (23 Apr 2010)
-sub validate_flow {
+sub validate_flow_old {
   my (@start_logic_names) = @_;
 
   die "EASIH::JMS::validate_flow not called with a logic_name\n" if (! @start_logic_names);
