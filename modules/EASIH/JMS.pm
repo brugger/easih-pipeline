@@ -11,6 +11,7 @@ use Data::Dumper;
 use Storable;
 use File::Temp;
 use Time::HiRes;
+use Carp;
 
 use EASIH::JMS::Hive;
 
@@ -212,7 +213,6 @@ sub submit_job {
   }
 
   if ( ! $cmd ) {
-     use Carp;
      Carp::confess(" no cmd given\n");
   }
 
@@ -243,7 +243,7 @@ sub submit_job {
       $$instance{ status   } = $FINISHED;
     }
     else {
-      print "$@\n";
+      verbose("$@\n", 1);
       $$instance{ status   } = $FAILED;
     }
   }
@@ -387,7 +387,7 @@ sub report {
     $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
     $queue_stats .= sprintf("%02d/%02d",$sub_other, ($res{ $logic_name }{ failed  } || 0));
 
-    $report .= sprintf("%-15s ||  %8s  || %10s || $queue_stats\n", $logic_name,
+    $report .= sprintf("%-17s ||  %8s  || %10s || $queue_stats\n", $logic_name,
 		       format_time($res{ $logic_name }{ runtime }), format_memory($res{ $logic_name }{ memory }));
   }
 
@@ -708,7 +708,7 @@ sub waiting_for_analysis {
   map { $done{ $_ }++ } @done_analyses;
   foreach my $dependency ( @{$dependencies{ $logic_name }} ) {
     if ( ! $done{ $dependency} ) {
-      print "$logic_name is waiting for $dependency\n";
+      verbose("$logic_name is waiting for $dependency\n", 10);
       return 1;
     }
   }
@@ -884,6 +884,7 @@ sub run {
   
 
   verbose( "Retaineded jobs: ". @retained_jobs . " (should be 0)\n", 5);
+  store_state();
 
 }
 
@@ -1015,7 +1016,6 @@ sub print_flow {
 #    print "end of flow\n";
   }
 
-  print "\nEnd of validate_run\n";
   
 }
 
@@ -1071,47 +1071,7 @@ sub validate_flow {
 #    print "end of flow\n";
   }
 
-  print "\nEnd of validate_run\n";
-  
-}
-
-
-
-
-# 
-# 
-# 
-# Kim Brugger (23 Apr 2010)
-sub validate_flow_old {
-  my (@start_logic_names) = @_;
-
-  die "EASIH::JMS::validate_flow not called with a logic_name\n" if (! @start_logic_names);
-  my $errors;
-
-  foreach $current_logic_name ( @start_logic_names ) {
-
-    my $next_logic_name   = next_analysis( $current_logic_name );
-    while (1) {
-      
-      if ( ! $main::analysis{$current_logic_name} ) {
-	die "ERROR :::: No infomation about '$current_logic_name' in the main::analysis hash\n";
-	$errors++
-      }
-      else {
-	my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
-      }
-      
-      if ( ! next_analysis( $current_logic_name)) {
-	last;
-      }
-      else {
-	$current_logic_name = $next_logic_name;
-	$next_logic_name    = next_analysis( $current_logic_name );
-      }
-    }
-  }
-
-  print "End of validate_run\n";
+  verbose("\nEnd of validate_run\n", 1);
   
 }
 
