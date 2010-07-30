@@ -788,66 +788,69 @@ sub run {
         if ( $jms_hash{ $jms_id }{ status } == $FINISHED ) {
 	  
 	  $jms_hash{ $jms_id }{ tracking } = 0;	  
-          my $next_logic_name = next_analysis( $logic_name );
+          my @next_logic_names = next_analysis( $logic_name );
 
           # no more steps we can take, jump the the next job;
-          if ( ! $next_logic_name ) {
+          if ( ! @next_logic_names ) {
             next;
           }
 
-	  $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
-	      if (! $analysis_order{ $next_logic_name } || 
-		  $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
+	  foreach my $next_logic_name ( @next_logic_names ) {
 
-
-
-          # all threads for this run has to finish before we can 
-          # proceed to the next one. If a failed job exists this will never be 
-	  # possible
-          if ( $main::analysis{ $next_logic_name }{ sync } ) { 
-
-	    next if ( $no_restart );
-	    # we do not go further if new jobs has been started or is running.
-	    next if ( @retained_jobs > 0 );
+	    $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
+		if (! $analysis_order{ $next_logic_name } || 
+		    $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
 	    
-	    next if (depends_on_active_jobs( $next_logic_name));
 
-	    my @depends_on;
-	    foreach my $analysis ( keys %main::flow ) {
-	      push @depends_on, $analysis if ( $main::flow{ $analysis } eq $next_logic_name );
-	    }
 
-	    my @depend_jobs = fetch_jobs( @depends_on);
-
-	    my $all_threads_done = 1;
-            foreach my $ljms_id ( @depend_jobs ) {
-              if ( $jms_hash{ $ljms_id }{ status } != $FINISHED ) {
-		$all_threads_done = 0;
-		last;
+	    # all threads for this run has to finish before we can 
+	    # proceed to the next one. If a failed job exists this will never be 
+	    # possible
+	    if ( $main::analysis{ $next_logic_name }{ sync } ) { 
+	      
+	      next if ( $no_restart );
+	      # we do not go further if new jobs has been started or is running.
+	      next if ( @retained_jobs > 0 );
+	      
+	      next if (depends_on_active_jobs( $next_logic_name));
+	      
+	      my @depends_on;
+	      foreach my $analysis ( keys %main::flow ) {
+		push @depends_on, $analysis if ( $main::flow{ $analysis } eq $next_logic_name );
 	      }
-	    }
-	    
-	    if ( $all_threads_done ) {
-	      # collect inputs, and set tracking to 0
-	      my @inputs;
+	      
+	      my @depend_jobs = fetch_jobs( @depends_on );
+	      
+	      my $all_threads_done = 1;
 	      foreach my $ljms_id ( @depend_jobs ) {
-		$jms_hash{ $ljms_id }{ tracking } = 0;
-		push @inputs, $jms_hash{ $ljms_id }{ output };
+		if ( $jms_hash{ $ljms_id }{ status } != $FINISHED ) {
+		  $all_threads_done = 0;
+		  last;
+		}
 	      }
-
-	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-	      run_analysis( $next_logic_name, @inputs);
+	      
+	      if ( $all_threads_done ) {
+		# collect inputs, and set their tracking to 0
+		my @inputs;
+		foreach my $ljms_id ( @depend_jobs ) {
+		  $jms_hash{ $ljms_id }{ tracking } = 0;
+		  push @inputs, $jms_hash{ $ljms_id }{ output };
+		}
+		
+		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
+		run_analysis( $next_logic_name, @inputs);
+		$started++;
+	      }
+	      
+	    }
+	    # unsynced part of the pipeline, run the next job.
+	    else {
+	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
+	      run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
 	      $started++;
 	    }
-            
 	  }
-	  # unsynced part of the pipeline, run the next job.
-          else {
-	    verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
-            run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
-	    $started++;
-          }
-        }
+	}
 	elsif ( $jms_hash{ $jms_id }{ status } == $FAILED ) {
 	  $jms_hash{ $jms_id }{ tracking } = 0;
 #	  $no_restart++;

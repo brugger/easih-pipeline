@@ -13,8 +13,8 @@ use base(qw(EASIH::JMS::Hive));
 my %stats;
 
 
-#my $executer = "/home/kb468/projects/easih-flow/scripts/dummies/qstat.pl";
-my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/qstat.pl";
+my $executer = "/home/kb468/easih-pipeline/scripts/dummies/qstat.pl";
+#my $executer = "/home/brugger/projects/easih-flow/scripts/dummies/qstat.pl";
 
 # 
 # 
