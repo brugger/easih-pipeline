@@ -450,7 +450,7 @@ sub full_report {
     if ( $job_id != -1 ) {
       $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
     }
-#    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
+    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
   }
 
   return $report;
@@ -879,7 +879,7 @@ sub run {
   print total_runtime();
 
   if ( $no_restart ) {
-    print "The pipeline was unsucessful with $no_restart jobs not being able to finish\n";
+    print "The pipeline was unsucessful with $no_restart job(s) not being able to finish\n";
   }
   
 
