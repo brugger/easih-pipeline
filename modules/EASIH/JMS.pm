@@ -26,12 +26,14 @@ my $use_storing    =   1; # debugging purposes
 my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
 
+
 my $no_restart     =   0; # failed jobs that cannot be restarted. 
 
 # default dummy hive that will fail gracefully, and the class that every other hive
 # should inherit from.
 my $hive           = "EASIH::JMS::Hive";
 
+my ($start_time, $end_time);
 my @delete_files;
 my %jms_hash;
 my @jms_ids;
@@ -395,6 +397,8 @@ sub report {
 }
 
 
+
+
 # 
 # 
 # 
@@ -415,6 +419,17 @@ sub total_runtime {
 }
 
 
+
+# 
+# 
+# 
+# Kim Brugger (04 Aug 2010)
+sub real_runtime {
+#  return "" if ( ! $end_time || ! $start_time);
+  return sprintf("Real runtime: %8s\n", format_time( $end_time - $start_time ));
+}
+
+
 # 
 # 
 # 
@@ -429,7 +444,7 @@ sub full_report {
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
 
     if ( ! $printed_logic_name{ $logic_name } ) {
-      $report .= "| $logic_name\n";
+      $report .= "\n| $logic_name\n";
       $report .=  "-="x10 . "-\n";
       $printed_logic_name{ $logic_name }++;
     }
@@ -475,6 +490,7 @@ sub mail_report {
 
   print $mail report() . "\n\n";
   print $mail total_runtime();
+  print $mail real_runtime();
   $0 =~ s/.*\///;
 
   print $mail "Running directory: $cwd, Freeze file: $0.$$\n";
@@ -759,6 +775,7 @@ sub run {
   validate_flow(@start_logic_names);
 
 
+  $start_time = Time::HiRes::gettimeofday();
 
   while (1) {
 
@@ -877,6 +894,7 @@ sub run {
     check_jobs();
   }
   print total_runtime();
+  print real_runtime();
 
   if ( $no_restart ) {
     print "The pipeline was unsucessful with $no_restart job(s) not being able to finish\n";
@@ -884,8 +902,10 @@ sub run {
   
 
   verbose( "Retaineded jobs: ". @retained_jobs . " (should be 0)\n", 5);
+  $end_time = Time::HiRes::gettimeofday();
   store_state();
 
+  return( $no_restart );
 }
 
 
@@ -1105,6 +1125,8 @@ sub store_state {
 	      max_jobs           => $max_jobs,
 	      hive               => $hive,
 	      job_counter        => $job_counter,
+	      start_time         => $start_time,
+	      end_time           => $end_time,
 	      
 	      stats              => $hive->stats,
 	      
@@ -1152,6 +1174,9 @@ sub restore_state {
   $sleep_time         = $$blob{sleep_time};
   $max_jobs           = $$blob{max_jobs};
   $job_counter        = $$blob{job_counter};
+  
+  $start_time         = $$blob{start_time};
+  $end_time           = $$blob{end_time};
 	      
   @retained_jobs      = $$blob{retained_jobs};
   $current_logic_name = $$blob{current_logic_name};
