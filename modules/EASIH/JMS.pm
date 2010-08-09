@@ -1,6 +1,6 @@
 package EASIH::JMS;
 # 
-# JobManagementSystem frame for running pipelines everywhere!
+# JobManagementSystem framework for running pipelines everywhere!
 # 
 # 
 # Kim Brugger (23 Apr 2010), contact: kim.brugger@easih.ac.uk
@@ -465,7 +465,15 @@ sub full_report {
     if ( $job_id != -1 ) {
       $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
     }
-    $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
+    if ( $jms_hash{ $jms_id }{ output } && ref ($jms_hash{ $jms_id }{ output }) eq 'ARRAY') {
+      $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, join(",", @{$jms_hash{ $jms_id }{ output }}));
+    }
+    elsif ( $jms_hash{ $jms_id }{ output } && ref ($jms_hash{ $jms_id }{ output }) eq 'HASH') {
+      $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, join(',',map { "$_=> $jms_hash{ $jms_id }{ output }{$_}"} keys %{$jms_hash{ $jms_id }{ output }}));
+    }
+    else {
+      $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, ($jms_hash{ $jms_id }{ output } || ""));
+    }
   }
 
   return $report;
