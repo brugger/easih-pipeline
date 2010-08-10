@@ -425,7 +425,7 @@ sub total_runtime {
 # 
 # Kim Brugger (04 Aug 2010)
 sub real_runtime {
-#  return "" if ( ! $end_time || ! $start_time);
+  return "" if ( ! $end_time || ! $start_time);
   return sprintf("Real runtime: %8s\n", format_time( $end_time - $start_time ));
 }
 
