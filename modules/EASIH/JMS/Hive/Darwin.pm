@@ -84,7 +84,7 @@ sub job_status {
 
 
 
-  if ( $res{job_state} eq "C" ) {
+  if ( $res{job_state} && $res{job_state} eq "C" ) {
     my ($hour, $min, $sec) = split(":", $res{'resources_used.walltime'});
 
     $stats{$job_id}{runtime} = $sec + 60 * $min + 3600 * $hour;
