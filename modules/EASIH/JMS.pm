@@ -570,7 +570,6 @@ sub check_jobs {
 sub reset {
   my ($reset_logic_name) = @_;
 
-
   # Only look at the jobs we are currently tracking
   foreach my $jms_id ( @jms_ids ) {
     delete $jms_hash{ $jms_id } if ($jms_hash{ $jms_id }{ logic_name } eq $reset_logic_name );
@@ -660,9 +659,6 @@ sub fetch_active_jobs {
   foreach my $jms_id ( @jms_ids ) {
     push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
   }
-
-#  @active_jobs = sort { $a <=> $b } @active_jobs;
-#  @active_jobs = sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } @active_jobs;
 
   verbose("@active_jobs\n", 10);
 
