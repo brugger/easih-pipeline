@@ -22,6 +22,7 @@ my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
 my $current_logic_name;
+my $pre_jms_id     = undef;
 my $use_storing    =   1; # debugging purposes
 my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
@@ -236,7 +237,9 @@ sub submit_job {
 		   tracking    => 1,
 		   command     => $cmd,
 		   output      => $output,
-		   logic_name  => $current_logic_name};
+		   logic_name  => $current_logic_name,
+		   pre_jms_id  => $pre_jms_id};
+
 
   if ( $system ) {
     eval { system "$cmd" };
@@ -259,6 +262,8 @@ sub submit_job {
   $jms_hash{ $jms_id }  = $instance;
 
   $jobs_submitted++;      
+
+  $jms_hash{ $pre_jms_id }{ post_jms_id } = $jms_id if ( $pre_jms_id);
 
   push @jms_ids, $jms_id;
 }
@@ -561,18 +566,78 @@ sub check_jobs {
 
 
 
+# 
+# reset the failed states, so the pipeline can run again
+# 
+# Kim Brugger (26 Apr 2010)
+sub hard_reset {
+  my (@reset_logic_names) = @_;
 
+  # Update job statuses...
+  check_jobs();
+
+  # Only look at the jobs we are currently tracking
+  foreach my $jms_id ( @jms_ids ) {
+
+    next if ($jms_hash{ $jms_id }{ post_jms_id });
+    # the analysis depends on a previous analysis, and can be rerun
+
+#    print "-->$jms_id\n";
+
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+      my $pre_jms_id = $jms_hash{ $jms_id }{ pre_jms_id };
+      my $pre_logic_name = $jms_hash{ $pre_jms_id }{ logic_name } if ( $pre_jms_id );
+
+      if ($pre_jms_id  && ! $main::analysis{$pre_logic_name}{ sync }){
+	$jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
+	print "hard reset: $jms_id\n";
+	$jms_hash{ $pre_jms_id }{ tracking } = 1;
+	$jms_hash{ $jms_id }{ tracking} = 0;
+      }
+      else {
+	$jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
+	print "Resubmitted $jms_id\n";
+	resubmit_job( $jms_id );
+      }
+    }
+    elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
+      print "Tracking $jms_id\n";
+      $jms_hash{ $jms_id }{ tracking } = 1;
+      next;
+    }
+
+  }
+}
 
 # 
 # reset the failed states, so the pipeline can run again
 # 
 # Kim Brugger (26 Apr 2010)
 sub reset {
-  my ($reset_logic_name) = @_;
+  my (@reset_logic_names) = @_;
+
+  # Update job statuses...
+  check_jobs();
 
   # Only look at the jobs we are currently tracking
   foreach my $jms_id ( @jms_ids ) {
-    delete $jms_hash{ $jms_id } if ($jms_hash{ $jms_id }{ logic_name } eq $reset_logic_name );
+
+    next if ($jms_hash{ $jms_id }{ post_jms_id });
+    # the analysis depends on a previous analysis, and can be rerun
+
+#    print "-->$jms_id\n";
+
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+      $jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
+      print "Resubmitted $jms_id\n";
+      resubmit_job( $jms_id );
+    }
+    elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
+      print "Tracking $jms_id\n";
+      $jms_hash{ $jms_id }{ tracking } = 1;
+      next;
+    }
+
   }
 }
 
@@ -686,14 +751,18 @@ sub fetch_jobs {
 
 
 # 
-# 
+# Set the pre analysis dependencies for each analysis.
 # 
 # Kim Brugger (05 Jul 2010)
-sub analysis_dependencies {
+sub set_analysis_dependencies {
   my ( $logic_name ) = @_;
 
 
   my @logic_names = next_analysis( $logic_name );
+
+  foreach my $next_logic_name ( @logic_names) {
+    push @{$dependencies{ $next_logic_name }}, $logic_name;
+  }
 
   while ( $logic_name = shift @logic_names  ) {
 
@@ -710,6 +779,37 @@ sub analysis_dependencies {
     }
   }
 
+}
+
+
+# 
+# Traverse the flow hash and stores the analysis order
+# 
+# Kim Brugger (09 Sep 2010)
+sub set_analysis_order {
+  my ( $logic_name ) = @_;
+  
+  $analysis_order{ $logic_name } = 1;
+  my @logic_names = ( $logic_name );
+
+  while ( $logic_name = shift @logic_names  ) {
+
+    my @next_logic_names = next_analysis( $logic_name );
+    
+
+    foreach my $next_logic_name ( @next_logic_names ) {
+      
+      $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
+	  if (! $analysis_order{ $next_logic_name } || 
+	      $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
+    }
+    push @logic_names, next_analysis( $logic_name );
+  }
+
+
+#  foreach my $key ( sort {$analysis_order{$a} <=> $analysis_order{$b}} keys %analysis_order ) {
+#    printf("%03d --> $key\n", $analysis_order{ $key });
+#  }
 }
 
 
@@ -753,6 +853,8 @@ sub depends_on_active_jobs {
   foreach my $jms_id ( @jms_ids ) {
     next if (! $jms_hash{ $jms_id }{ tracking });
     
+    print "$jms_id --> $dependency{ $jms_hash{ $jms_id }{ logic_name }}\n";
+
     if ( $dependency{ $jms_hash{ $jms_id }{ logic_name }}) {
       return 1;
     }
@@ -781,17 +883,25 @@ sub run {
 
   $start_time = Time::HiRes::gettimeofday();
 
+  foreach my $start_logic_name ( @start_logic_names ) {
+    set_analysis_dependencies( $start_logic_name );
+    set_analysis_order( $start_logic_name );
+  }
+
+#  print Dumper( \%dependencies );
+
   while (1) {
 
     my ($started, $running ) = (0,0);
 
     my @active_jobs = fetch_active_jobs();
+       
+
+#    print Dumper( \@active_jobs );
     
     # nothing running, start from the start_logic_names
     if ( ! @active_jobs ) {
       foreach my $start_logic_name ( @start_logic_names ) {
-	analysis_dependencies( $start_logic_name );
-	$analysis_order{ $start_logic_name } = 1;
         run_analysis( $start_logic_name );
 	$running++;
       }
@@ -818,21 +928,18 @@ sub run {
 
 	  foreach my $next_logic_name ( @next_logic_names ) {
 
-	    $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
-		if (! $analysis_order{ $next_logic_name } || 
-		    $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
-	    
-
-
 	    # all threads for this run has to finish before we can 
 	    # proceed to the next one. If a failed job exists this will never be 
 	    # possible
 	    if ( $main::analysis{ $next_logic_name }{ sync } ) { 
 	      
+
+	      $DB::single = 1 ;;
+
 	      next if ( $no_restart );
 	      # we do not go further if new jobs has been started or is running.
 	      next if ( @retained_jobs > 0 );
-	      
+
 	      next if (depends_on_active_jobs( $next_logic_name));
 	      
 	      my @depends_on;
@@ -859,7 +966,7 @@ sub run {
 		}
 		
 		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-		run_analysis( $next_logic_name, @inputs);
+		run_analysis( $next_logic_name, $jms_id, @inputs);
 		$started++;
 	      }
 	      
@@ -867,7 +974,7 @@ sub run {
 	    # unsynced part of the pipeline, run the next job.
 	    else {
 	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
-	      run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
+	      run_analysis( $next_logic_name, $jms_id, $jms_hash{ $jms_id }{ output });
 	      $started++;
 	    }
 	  }
@@ -919,11 +1026,12 @@ sub run {
 # 
 # Kim Brugger (18 May 2010)
 sub run_analysis {
-  my ( $logic_name, @inputs) = @_;
+  my ( $logic_name, $pre_id, @inputs) = @_;
 
   my $function = function_module($main::analysis{ $logic_name }{ function }, $logic_name);
 	
   $current_logic_name = $logic_name;
+  $pre_jms_id         = $pre_id || undef;
 
   {
     no strict 'refs';
@@ -1057,7 +1165,7 @@ sub validate_flow {
   my @analyses;
 
   foreach my $start_logic_name ( @start_logic_names ) {
-    analysis_dependencies( $start_logic_name );
+    set_analysis_dependencies( $start_logic_name );
   }
 
   my @logic_names = @start_logic_names;
@@ -1182,7 +1290,7 @@ sub restore_state {
   $start_time         = $$blob{start_time};
   $end_time           = $$blob{end_time};
 	      
-  @retained_jobs      = $$blob{retained_jobs};
+  @retained_jobs      = @{$$blob{retained_jobs}};
   $current_logic_name = $$blob{current_logic_name};
 
   @main::ARGV         = @{$$blob{argv}};
