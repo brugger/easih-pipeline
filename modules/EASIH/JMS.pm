@@ -13,7 +13,7 @@ use File::Temp;
 use Time::HiRes;
 use Carp;
 
-use EASIH::JMS::Hive;
+use EASIH::JMS::Backend;
 
 my $last_save      =   0;
 my $save_interval  = 300;
@@ -32,7 +32,7 @@ my $no_restart     =   0; # failed jobs that cannot be restarted.
 
 # default dummy hive that will fail gracefully, and the class that every other hive
 # should inherit from.
-my $hive           = "EASIH::JMS::Hive";
+my $backend           = "EASIH::JMS::Backend";
 
 my ($start_time, $end_time);
 my @delete_files;
@@ -122,17 +122,40 @@ sub fail {
 # 
 # 
 # Kim Brugger (24 Jun 2010)
-sub hive {
-  $hive = shift;
+sub backend {
+  $backend = shift;
   
-  if ( $hive ) {
+  if ( $backend ) {
     # strip away the the expected class
-    $hive =~ s/EASIH::JMS::Hive:://;
+    $backend =~ s/EASIH::JMS::Backend:://;
     # and (re)append it (again);
-    $hive = "EASIH::JMS::Hive::".$hive;
+    $backend = "EASIH::JMS::Backend::".$backend;
   }
 
-  return $hive;
+  return $backend;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub hive {
+  $backend = shift;
+
+  print "\n :::: Hive has been replaced with Backend, please change your script ::::\n\n";
+  
+  if ( $backend ) {
+    # strip away the the expected class
+    $backend =~ s/EASIH::JMS::Backend:://;
+    $backend =~ s/EASIH::JMS::Hive:://;
+    # a renaming of one of the backend modules...
+    $backend = "Local" if ( $backend eq "Kluster");
+    # and (re)append it (again);
+    $backend = "EASIH::JMS::Backend::".$backend;
+  }
+
+  return $backend;
 }
 
 
@@ -210,7 +233,7 @@ sub submit_job {
   my $tmp_file = EASIH::JMS::tmp_file();
 
   if ( $dry_run ) {
-    verbose("$cmd using $hive\n", 0);
+    verbose("$cmd using $backend\n", 0);
     return;
   }
 
@@ -253,7 +276,7 @@ sub submit_job {
   }
   else {
 
-    my $job_id = $hive->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
     
     $$instance{ job_id } = $job_id;
   }    
@@ -282,7 +305,7 @@ sub resubmit_job {
     return;
   }
 
-  my $job_id = $hive->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
+  my $job_id = $backend->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -361,11 +384,11 @@ sub get_timestamp {
 # 
 # Kim Brugger (13 Sep 2010)
 sub fetch_jms_ids {
-  my $tracking = shift || 0;
+  my $active_only = shift || 0;
 
   my @jms_ids = sort {$a <=> $b } keys %jms_hash;
 
-  if ( $tracking ) {
+  if ( $active_only ) {
     my @active_jobs;
     foreach my $jms_id ( @jms_ids ) {
       push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
@@ -404,9 +427,9 @@ sub report {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     if ( $job_id != -1 ) {
-      my $memory = $hive->job_memory( $job_id ) || 0;
+      my $memory = $backend->job_memory( $job_id ) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
-      $res{ $logic_name }{ runtime } += $hive->job_runtime( $job_id ) || 0;
+      $res{ $logic_name }{ runtime } += $backend->job_runtime( $job_id ) || 0;
     }
   }
 
@@ -445,7 +468,7 @@ sub total_runtime {
    
     next if ( $job_id == -1 );
 
-    $runtime += int($hive->job_runtime( $job_id )) || 0;
+    $runtime += int($backend->job_runtime( $job_id )) || 0;
   }
 
   return sprintf("Total runtime: %8s\n", format_time( $runtime ));
@@ -496,7 +519,7 @@ sub full_report {
     $report .= sprintf("%3d/%-5d\t%12s\tfailures: %d\n", $jms_id, $job_id, $status2name{ $status }, $jms_hash{ $jms_id }{ failed } || 0);
 
     if ( $job_id != -1 ) {
-      $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
+      $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($backend->job_runtime( $job_id )), format_memory($backend->job_memory( $job_id )));
     }
     if ( $jms_hash{ $jms_id }{ output } && ref ($jms_hash{ $jms_id }{ output }) eq 'ARRAY') {
       $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, join(",", @{$jms_hash{ $jms_id }{ output }}));
@@ -566,7 +589,7 @@ sub check_jobs {
       $status = $jms_hash{ $jms_id }{ status };
     }
     else {	
-      $status = $hive->job_status( $jms_hash{ $jms_id}{ job_id } );
+      $status = $backend->job_status( $jms_hash{ $jms_id}{ job_id } );
       $jms_hash{ $jms_id }{ status } = $status;
     }
 
@@ -1246,12 +1269,12 @@ sub store_state {
 	      max_retry          => $max_retry,
 	      sleep_time         => $sleep_time,
 	      max_jobs           => $max_jobs,
-	      hive               => $hive,
+	      backend            => $backend,
 	      job_counter        => $job_counter,
 	      start_time         => $start_time,
 	      end_time           => $end_time,
 	      
-	      stats              => $hive->stats,
+	      stats              => $backend->stats,
 	      
 	      retained_jobs      => \@retained_jobs,
 	      current_logic_name => $current_logic_name,
@@ -1306,8 +1329,10 @@ sub restore_state {
   %analysis_order     = %{$$blob{analysis_order}};
   %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
-  hive($$blob{hive});
-  $hive->stats($$blob{stats});
+  hive($$blob{hive}) if ( $$blob{hive} );
+  backend($$blob{backend}) if ( $$blob{backend});
+  print "--> $backend'\n";
+  $backend->stats($$blob{stats});
 }
 
 

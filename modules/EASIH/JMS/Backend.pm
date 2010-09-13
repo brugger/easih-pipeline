@@ -1,8 +1,8 @@
-package EASIH::JMS::Hive;
+package EASIH::JMS::Backend;
 
-use EASIH::JMS::Hive::DetachedDummy;
-use EASIH::JMS::Hive::Kluster;
-use EASIH::JMS::Hive::Darwin;
+use EASIH::JMS::Backend::DetachedDummy;
+use EASIH::JMS::Backend::Local;
+use EASIH::JMS::Backend::Darwin;
 
 use strict;
 use warnings;
