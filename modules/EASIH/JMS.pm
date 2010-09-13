@@ -14,7 +14,6 @@ use Time::HiRes;
 use Carp;
 
 use EASIH::JMS::Backend;
-use EASIH::JMS::Report;
 
 my $last_save      =   0;
 my $save_interval  = 300;
@@ -143,7 +142,7 @@ sub backend {
 sub hive {
   $backend = shift;
 
-  print "\n :::: Hive has been replaced with Backend, please change your script ::::\n";
+  print "\n :::: Hive has been replaced with Backend, please change your script ::::";
   print "\n :::: This function will be removed soon.                            ::::\n\n";
   
   if ( $backend ) {
@@ -281,7 +280,7 @@ sub submit_job {
 
   $jobs_submitted++;      
 
-  $jms_hash{ $pre_jms_id }{ post_jms_id } = $jms_id if ( $pre_jms_id );
+  push @{$jms_hash{ $pre_jms_id }{ post_jms_id }}, $jms_id if ( $pre_jms_id );
 }
 
 
@@ -409,7 +408,7 @@ sub report {
 
   my %res = ();
 
-  foreach my $jms_id ( fetch_jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
     my $status     = $jms_hash{ $jms_id }{ status }; 
     $res{ $logic_name }{ $status }++;
@@ -454,7 +453,7 @@ sub total_runtime {
 
   my $runtime = 0;
   
-  foreach my $jms_id ( fetch_jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     next if ( $job_id == -1 );
@@ -487,7 +486,7 @@ sub full_report {
 
   my %printed_logic_name = ();
 
-  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } fetch_jms_ids ) {   
+  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } fetch_jms_ids() ) {   
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
 
     if ( ! $printed_logic_name{ $logic_name } ) {
@@ -605,8 +604,13 @@ sub check_jobs {
 
 
 # 
-# reset the failed states, so the pipeline can run again
-# 
+# Hard ! resets the pipeline. If a analysis failed it is deleted and
+# pushed back to the previous step in the pipeline. If that job
+# resulted in multiple child processes then they and all their spawn
+# is deleted.
+#
+# Did I mention this was a HARD reset?
+#
 # Kim Brugger (26 Apr 2010)
 sub hard_reset {
   my (@reset_logic_names) = @_;
@@ -615,28 +619,27 @@ sub hard_reset {
   check_jobs();
 
   # Only look at the jobs we are currently tracking
-  foreach my $jms_id ( fetch_jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
 
+    next if (! $jms_hash{ $jms_id });
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
-
-#    print "-->$jms_id\n";
 
     if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
       my $pre_jms_id = $jms_hash{ $jms_id }{ pre_jms_id };
       my $pre_logic_name = $jms_hash{ $pre_jms_id }{ logic_name } if ( $pre_jms_id );
 
-      if ($pre_jms_id  && ! $main::analysis{$pre_logic_name}{ sync }){
-	$jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
-	print "hard reset: $jms_id\n";
-	$jms_hash{ $pre_jms_id }{ tracking } = 1;
-	$jms_hash{ $jms_id }{ tracking} = 0;
+      if ($pre_jms_id  && @{$jms_hash{ $pre_jms_id }{ post_jms_id }} > 1 ){
+	my @children = @{$jms_hash{ $pre_jms_id }{ post_jms_id }};
+
+	while (my $child = shift @children ) {
+	  push @children, @{$jms_hash{ $child }{ post_jms_id }} if ($jms_hash{ $child }{ post_jms_id });
+	  delete $jms_hash{ $child };
+	}
+
       }
-      else {
-	$jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
-	print "Resubmitted $jms_id\n";
-	resubmit_job( $jms_id );
-      }
+      print "Resubmitted $pre_jms_id after hard reset downstream (due to $jms_id)\n";
+      resubmit_job( $pre_jms_id );
     }
     elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
       print "Tracking $jms_id\n";
@@ -651,14 +654,14 @@ sub hard_reset {
 # reset the failed states, so the pipeline can run again
 # 
 # Kim Brugger (26 Apr 2010)
-sub soft_reset {
+sub reset {
   my (@reset_logic_names) = @_;
 
   # Update job statuses...
   check_jobs();
 
   # Only look at the jobs we are currently tracking
-  foreach my $jms_id ( fetch_jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
 
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
@@ -667,19 +670,17 @@ sub soft_reset {
 
     if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
       $jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
-      print "Resubmitted $jms_id\n";
+      verbose("Resubmitted $jms_id\n", 10);
       resubmit_job( $jms_id );
     }
     elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
-      print "Tracking $jms_id\n";
+      verbose( "Tracking $jms_id\n", 10);
       $jms_hash{ $jms_id }{ tracking } = 1;
       next;
     }
 
   }
 }
-
-
 
 
 
@@ -751,7 +752,7 @@ sub fetch_jobs {
 #  print " --> @logic_names \n";
 
   my @jobs;
-  foreach my $jms_id ( fetch_jms_ids ) {    
+  foreach my $jms_id ( fetch_jms_ids() ) {    
     push @jobs, $jms_id if ( grep(/$jms_hash{ $jms_id }{ logic_name }/, @logic_names) );
   }
 
@@ -859,10 +860,10 @@ sub depends_on_active_jobs {
   my %dependency;
   map { $dependency{ $_ }++ } @{$dependencies{ $logic_name }};
   
-  foreach my $jms_id ( fetch_jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     next if (! $jms_hash{ $jms_id }{ tracking });
     
-    print "$jms_id --> $dependency{ $jms_hash{ $jms_id }{ logic_name }}\n";
+#    print "$jms_id --> $dependency{ $jms_hash{ $jms_id }{ logic_name }}\n";
 
     if ( $dependency{ $jms_hash{ $jms_id }{ logic_name }}) {
       return 1;
@@ -896,8 +897,6 @@ sub run {
     set_analysis_dependencies( $start_logic_name );
     set_analysis_order( $start_logic_name );
   }
-
-#  print Dumper( \%dependencies );
 
   while (1) {
 
@@ -1007,7 +1006,7 @@ sub run {
 
 
     check_n_store_state();
-    print &EASIH::JMS::Report::report();
+    print report();
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
@@ -1304,7 +1303,6 @@ sub restore_state {
 
   hive($$blob{hive}) if ( $$blob{hive} );
   backend($$blob{backend}) if ( $$blob{backend});
-  print "--> $backend'\n";
   $backend->stats($$blob{stats});
 }
 
