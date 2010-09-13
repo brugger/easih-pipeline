@@ -37,7 +37,6 @@ my $hive           = "EASIH::JMS::Hive";
 my ($start_time, $end_time);
 my @delete_files;
 my %jms_hash;
-my @jms_ids;
 
 my @retained_jobs;
 my %analysis_order;
@@ -263,9 +262,7 @@ sub submit_job {
 
   $jobs_submitted++;      
 
-  $jms_hash{ $pre_jms_id }{ post_jms_id } = $jms_id if ( $pre_jms_id);
-
-  push @jms_ids, $jms_id;
+  $jms_hash{ $pre_jms_id }{ post_jms_id } = $jms_id if ( $pre_jms_id );
 }
 
 
@@ -362,12 +359,43 @@ sub get_timestamp {
 # 
 # 
 # 
+# Kim Brugger (13 Sep 2010)
+sub fetch_jms_ids {
+  my $tracking = shift || 0;
+
+  my @jms_ids = sort {$a <=> $b } keys %jms_hash;
+
+  if ( $tracking ) {
+    my @active_jobs;
+    foreach my $jms_id ( @jms_ids ) {
+      push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
+    }
+    return @active_jobs;
+  }
+
+  return @jms_ids;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (18 May 2010)
+sub fetch_active_jobs {
+  return fetch_jms_ids(1);
+}
+
+
+
+# 
+# 
+# 
 # Kim Brugger (24 Jun 2010)
 sub report {
 
   my %res = ();
 
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
     my $status     = $jms_hash{ $jms_id }{ status }; 
     $res{ $logic_name }{ $status }++;
@@ -412,7 +440,7 @@ sub total_runtime {
 
   my $runtime = 0;
   
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     next if ( $job_id == -1 );
@@ -445,7 +473,7 @@ sub full_report {
 
   my %printed_logic_name = ();
 
-  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } @jms_ids ) {   
+  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } fetch_jms_ids ) {   
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
 
     if ( ! $printed_logic_name{ $logic_name } ) {
@@ -524,7 +552,7 @@ sub check_jobs {
 
   return if ( $dry_run );
 
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
       
     # Only look at the jobs we are currently tracking
     next if ( ! $jms_hash{ $jms_id }{ tracking } );
@@ -577,7 +605,7 @@ sub hard_reset {
   check_jobs();
 
   # Only look at the jobs we are currently tracking
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
 
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
@@ -620,7 +648,7 @@ sub reset {
   check_jobs();
 
   # Only look at the jobs we are currently tracking
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
 
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
@@ -714,22 +742,6 @@ sub dry_run {
 
 
 
-# 
-# 
-# 
-# Kim Brugger (18 May 2010)
-sub fetch_active_jobs {
-
-  my @active_jobs;
-  foreach my $jms_id ( @jms_ids ) {
-    push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
-  }
-
-  verbose("@active_jobs\n", 10);
-
-  return @active_jobs;
-}
-
 
 
 # 
@@ -742,7 +754,7 @@ sub fetch_jobs {
 #  print " --> @logic_names \n";
 
   my @jobs;
-  foreach my $jms_id ( @jms_ids ) {    
+  foreach my $jms_id ( fetch_jms_ids ) {    
     push @jobs, $jms_id if ( grep(/$jms_hash{ $jms_id }{ logic_name }/, @logic_names) );
   }
 
@@ -850,7 +862,7 @@ sub depends_on_active_jobs {
   my %dependency;
   map { $dependency{ $_ }++ } @{$dependencies{ $logic_name }};
   
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids ) {
     next if (! $jms_hash{ $jms_id }{ tracking });
     
     print "$jms_id --> $dependency{ $jms_hash{ $jms_id }{ logic_name }}\n";
@@ -1227,7 +1239,6 @@ sub store_state {
   verbose("JMS :: Storing state in: '$filename'\n", 2);
 
   my $blob = {delete_files       => \@delete_files,
-	      jms_ids            => \@jms_ids,
 	      jms_hash           => \%jms_hash,
 	      save_interval      => $save_interval,
 	      last_save          => $last_save,
@@ -1244,10 +1255,9 @@ sub store_state {
 	      
 	      retained_jobs      => \@retained_jobs,
 	      current_logic_name => $current_logic_name,
+
 	      #main file variables.
 	      argv               => \@argv,
-#	      flow               => \%main::flow,
-#	      analysis           => \%main::analysis,
 	      analysis_order     => \%analysis_order,
 	      dependencies       => \%dependencies};
 
@@ -1275,7 +1285,6 @@ sub restore_state {
   my $blob = Storable::retrieve( $filename);
 
   @delete_files       = @{$$blob{delete_files}};
-  @jms_ids            = @{$$blob{jms_ids}};
   %jms_hash           = %{$$blob{jms_hash}};
 
   $save_interval      = $$blob{save_interval};
@@ -1294,8 +1303,6 @@ sub restore_state {
   $current_logic_name = $$blob{current_logic_name};
 
   @main::ARGV         = @{$$blob{argv}};
-#  %main::flow         = %{$$blob{flow}};
-#  %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
   %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
