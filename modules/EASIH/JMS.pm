@@ -14,6 +14,7 @@ use Time::HiRes;
 use Carp;
 
 use EASIH::JMS::Backend;
+use EASIH::JMS::Report;
 
 my $last_save      =   0;
 my $save_interval  = 300;
@@ -46,7 +47,6 @@ my $job_counter = 1; # This is for generating internal jms_id (JobManamentSystem
 our $cwd      = `pwd`;
 chomp($cwd);
 
-my $dry_run  = 0;
 my %dependencies;
 
 
@@ -143,7 +143,8 @@ sub backend {
 sub hive {
   $backend = shift;
 
-  print "\n :::: Hive has been replaced with Backend, please change your script ::::\n\n";
+  print "\n :::: Hive has been replaced with Backend, please change your script ::::\n";
+  print "\n :::: This function will be removed soon.                            ::::\n\n";
   
   if ( $backend ) {
     # strip away the the expected class
@@ -232,11 +233,6 @@ sub submit_job {
 
   my $tmp_file = EASIH::JMS::tmp_file();
 
-  if ( $dry_run ) {
-    verbose("$cmd using $backend\n", 0);
-    return;
-  }
-
   if ( ! $cmd ) {
      Carp::confess(" no cmd given\n");
   }
@@ -299,11 +295,6 @@ sub resubmit_job {
 
   my $instance   = $jms_hash{ $jms_id };
   my $logic_name = $$instance{logic_name};
-
-  if ( $dry_run ) {
-    verbose("echo 'cd $cwd; $$instance{command}' | qsub $main::analysis{$logic_name}{ hpc_param } \n", 20);
-    return;
-  }
 
   my $job_id = $backend->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
   
@@ -404,7 +395,7 @@ sub fetch_jms_ids {
 # 
 # 
 # Kim Brugger (18 May 2010)
-sub fetch_active_jobs {
+sub fetch_active_jms_ids {
   return fetch_jms_ids(1);
 }
 
@@ -573,12 +564,8 @@ sub mail_report {
 # Kim Brugger (22 Apr 2010)
 sub check_jobs {
 
-  return if ( $dry_run );
+  foreach my $jms_id ( fetch_active_jms_ids ) {
 
-  foreach my $jms_id ( fetch_jms_ids ) {
-      
-    # Only look at the jobs we are currently tracking
-    next if ( ! $jms_hash{ $jms_id }{ tracking } );
 
     if ( ! defined $jms_hash{ $jms_id }{ job_id } ) {
       die "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
@@ -664,7 +651,7 @@ sub hard_reset {
 # reset the failed states, so the pipeline can run again
 # 
 # Kim Brugger (26 Apr 2010)
-sub reset {
+sub soft_reset {
   my (@reset_logic_names) = @_;
 
   # Update job statuses...
@@ -748,19 +735,6 @@ sub next_analysis {
 sub delete_tmp_files {
 
   system "rm @delete_files";
-}
-
-
-# 
-# 
-# 
-# Kim Brugger (23 Apr 2010)
-sub dry_run {
-  my ( $start_logic_name ) = @_;
-
-  $dry_run = 1;
-  run( $start_logic_name );
-  $dry_run = 0;
 }
 
 
@@ -929,7 +903,7 @@ sub run {
 
     my ($started, $running ) = (0,0);
 
-    my @active_jobs = fetch_active_jobs();
+    my @active_jobs = fetch_active_jms_ids();
        
 
 #    print Dumper( \@active_jobs );
@@ -1033,7 +1007,7 @@ sub run {
 
 
     check_n_store_state();
-    print report();
+    print &EASIH::JMS::Report::report();
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
@@ -1251,7 +1225,6 @@ sub validate_flow {
 sub store_state {
   my ($filename ) = @_;
 
-  return if ( $dry_run);
   return if ( ! $use_storing );
 
   if ( ! $filename ) {
