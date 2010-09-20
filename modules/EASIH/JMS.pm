@@ -15,6 +15,8 @@ use Carp;
 
 use EASIH::JMS::Hive;
 
+my $VERSION        = "1.20";
+
 my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose_level  =   0;
@@ -151,6 +153,16 @@ sub sleep_time {
 # Kim Brugger (23 Apr 2010)
 sub save_interval {
   $save_interval = shift || -1;
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (20 Sep 2010)
+sub version {
+  return $VERSION;
 }
 
 
