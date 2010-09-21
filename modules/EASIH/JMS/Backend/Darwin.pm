@@ -92,8 +92,15 @@ sub job_status {
 
     if ( $res{exit_status} == 0) {
       # Remove the darwin logfiles, as we succeeded and do not need them anymore...
-      system "rm -f $res{ 'Error_Path' }" if ( $res{ 'Error_Path' } );
-      system "rm -f $res{ 'Output_Path' }" if ( $res{ 'Output_Path' } );
+      if ( $res{ 'Error_Path' } ) {
+	my ($host, $path) = split(":", $res{ 'Error_Path' });
+	system "rm -f $path";
+      }
+      if ( $res{ 'Output_Path' } ) {
+	my ($host, $path) = split(":", $res{ 'Output_Path' });
+	system "rm -f $path";
+      }
+
       return $EASIH::JMS::FINISHED 
     }
     

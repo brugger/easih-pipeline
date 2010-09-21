@@ -624,7 +624,15 @@ sub check_jobs {
 #
 # Kim Brugger (26 Apr 2010)
 sub hard_reset {
-  my (@reset_logic_names) = @_;
+  my ( $freezefile ) = @_;
+
+  if ( ! $freezefile || ! -e $freezefile) {
+    print "Cannot do a hard-reset without a freezefile\n";
+    exit 1;
+  }
+
+  restore_state( $freezefile);
+
 
   # Update job statuses...
   check_jobs();
@@ -666,7 +674,14 @@ sub hard_reset {
 # 
 # Kim Brugger (26 Apr 2010)
 sub reset {
-  my (@reset_logic_names) = @_;
+  my ( $freezefile ) = @_;
+
+  if ( ! $freezefile || ! -e $freezefile) {
+    print "Cannot do a reset without a freezefile\n";
+    exit 1;
+  }
+
+  restore_state( $freezefile);
 
   # Update job statuses...
   check_jobs();
@@ -677,10 +692,7 @@ sub reset {
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
 
-#    print "-->$jms_id\n";
-
     if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
-      $jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
       verbose("Resubmitted $jms_id\n", 10);
       resubmit_job( $jms_id );
     }
@@ -708,7 +720,7 @@ sub tmp_file {
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
   close ($tmp_fh);
-  system "rm $tmp_file";
+  system "rm -f $tmp_file";
 
   push @delete_files, "$tmp_file$postfix" if (! $keep_file);
 
@@ -746,7 +758,7 @@ sub next_analysis {
 # Kim Brugger (22 Apr 2010)
 sub delete_tmp_files {
 
-  system "rm @delete_files";
+  system "rm -f @delete_files";
 }
 
 
