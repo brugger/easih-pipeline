@@ -51,6 +51,8 @@ sub submit_job {
     $job_id =~ s/(\d+?)\..*/$1/;
   }
   
+  system "rm $tmp_file";
+  
   return $job_id;
 }
 
@@ -81,17 +83,20 @@ sub job_status {
   }
   $res{$id} = $value if ( $id && defined $value);
 
-
-
-
   if ( $res{job_state} && $res{job_state} eq "C" ) {
     my ($hour, $min, $sec) = split(":", $res{'resources_used.walltime'});
 
     $stats{$job_id}{runtime} = $sec + 60 * $min + 3600 * $hour;
     $stats{$job_id}{memory } = $res{'resources_used.mem'};
 
-    return $EASIH::JMS::FINISHED if ( $res{exit_status} == 0);
 
+    if ( $res{exit_status} == 0) {
+      # Remove the darwin logfiles, as we succeeded and do not need them anymore...
+      system "rm -f $res{ 'Error_Path' }" if ( $res{ 'Error_Path' } );
+      system "rm -f $res{ 'Output_Path' }" if ( $res{ 'Output_Path' } );
+      return $EASIH::JMS::FINISHED 
+    }
+    
     return $EASIH::JMS::FAILED   if ( $res{exit_status} != 0);
   }
 

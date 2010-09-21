@@ -242,7 +242,6 @@ sub submit_system_job {
 sub submit_job {
   my ($cmd, $output, $system) = @_;
 
-  my $tmp_file = EASIH::JMS::tmp_file();
 
   if ( ! $cmd ) {
      Carp::confess(" no cmd given\n");
