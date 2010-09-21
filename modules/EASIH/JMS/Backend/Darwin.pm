@@ -1,11 +1,11 @@
-package EASIH::JMS::Hive::Darwin;
+package EASIH::JMS::Backend::Darwin;
 
 use strict;
 use warnings;
 
 
 use EASIH::JMS;
-use base(qw(EASIH::JMS::Hive));
+use base(qw(EASIH::JMS::Backend));
 
 
 my %stats;

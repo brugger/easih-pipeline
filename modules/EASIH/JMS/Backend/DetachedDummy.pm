@@ -1,13 +1,13 @@
-package EASIH::JMS::Hive::DetachedDummy;
+package EASIH::JMS::Backend::DetachedDummy;
 
-use EASIH::JMS::Hive;
+use EASIH::JMS::Backend;
 use EASIH::JMS;
 
 use strict;
 use warnings;
 
 
-use base(qw(EASIH::JMS::Hive));
+use base(qw(EASIH::JMS::Backend));
 
 
 my %stats;

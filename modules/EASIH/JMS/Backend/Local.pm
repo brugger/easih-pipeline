@@ -1,6 +1,6 @@
-package EASIH::JMS::Hive::Kluster;
+package EASIH::JMS::Backend::Local;
 
-use EASIH::JMS::Hive;
+use EASIH::JMS::Backend;
 use EASIH::JMS;
 
 use strict;
@@ -12,7 +12,7 @@ use Time::HiRes;
 our %stats;
 
 
-use base qw(EASIH::JMS::Hive);
+use base qw(EASIH::JMS::Backend);
 
 
 my $max_jobs = 8;

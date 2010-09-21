@@ -13,7 +13,7 @@ use File::Temp;
 use Time::HiRes;
 use Carp;
 
-use EASIH::JMS::Hive;
+use EASIH::JMS::Backend;
 
 my $last_save      =   0;
 my $save_interval  = 300;
@@ -22,6 +22,7 @@ my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
 my $current_logic_name;
+my $pre_jms_id     = undef;
 my $use_storing    =   1; # debugging purposes
 my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
@@ -31,12 +32,11 @@ my $no_restart     =   0; # failed jobs that cannot be restarted.
 
 # default dummy hive that will fail gracefully, and the class that every other hive
 # should inherit from.
-my $hive           = "EASIH::JMS::Hive";
+my $backend           = "EASIH::JMS::Backend";
 
 my ($start_time, $end_time);
 my @delete_files;
 my %jms_hash;
-my @jms_ids;
 
 my @retained_jobs;
 my %analysis_order;
@@ -46,7 +46,6 @@ my $job_counter = 1; # This is for generating internal jms_id (JobManamentSystem
 our $cwd      = `pwd`;
 chomp($cwd);
 
-my $dry_run  = 0;
 my %dependencies;
 
 
@@ -122,17 +121,41 @@ sub fail {
 # 
 # 
 # Kim Brugger (24 Jun 2010)
-sub hive {
-  $hive = shift;
+sub backend {
+  $backend = shift;
   
-  if ( $hive ) {
+  if ( $backend ) {
     # strip away the the expected class
-    $hive =~ s/EASIH::JMS::Hive:://;
+    $backend =~ s/EASIH::JMS::Backend:://;
     # and (re)append it (again);
-    $hive = "EASIH::JMS::Hive::".$hive;
+    $backend = "EASIH::JMS::Backend::".$backend;
   }
 
-  return $hive;
+  return $backend;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub hive {
+  $backend = shift;
+
+  print "\n :::: Hive has been replaced with Backend, please change your script ::::";
+  print "\n :::: This function will be removed soon.                            ::::\n\n";
+  
+  if ( $backend ) {
+    # strip away the the expected class
+    $backend =~ s/EASIH::JMS::Backend:://;
+    $backend =~ s/EASIH::JMS::Hive:://;
+    # a renaming of one of the backend modules...
+    $backend = "Local" if ( $backend eq "Kluster");
+    # and (re)append it (again);
+    $backend = "EASIH::JMS::Backend::".$backend;
+  }
+
+  return $backend;
 }
 
 
@@ -209,11 +232,6 @@ sub submit_job {
 
   my $tmp_file = EASIH::JMS::tmp_file();
 
-  if ( $dry_run ) {
-    verbose("$cmd using $hive\n", 0);
-    return;
-  }
-
   if ( ! $cmd ) {
      Carp::confess(" no cmd given\n");
   }
@@ -236,7 +254,9 @@ sub submit_job {
 		   tracking    => 1,
 		   command     => $cmd,
 		   output      => $output,
-		   logic_name  => $current_logic_name};
+		   logic_name  => $current_logic_name,
+		   pre_jms_id  => $pre_jms_id};
+
 
   if ( $system ) {
     eval { system "$cmd" };
@@ -251,7 +271,7 @@ sub submit_job {
   }
   else {
 
-    my $job_id = $hive->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
     
     $$instance{ job_id } = $job_id;
   }    
@@ -260,7 +280,7 @@ sub submit_job {
 
   $jobs_submitted++;      
 
-  push @jms_ids, $jms_id;
+  push @{$jms_hash{ $pre_jms_id }{ post_jms_id }}, $jms_id if ( $pre_jms_id );
 }
 
 
@@ -275,12 +295,7 @@ sub resubmit_job {
   my $instance   = $jms_hash{ $jms_id };
   my $logic_name = $$instance{logic_name};
 
-  if ( $dry_run ) {
-    verbose("echo 'cd $cwd; $$instance{command}' | qsub $main::analysis{$logic_name}{ hpc_param } \n", 20);
-    return;
-  }
-
-  my $job_id = $hive->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
+  my $job_id = $backend->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -357,12 +372,43 @@ sub get_timestamp {
 # 
 # 
 # 
+# Kim Brugger (13 Sep 2010)
+sub fetch_jms_ids {
+  my $active_only = shift || 0;
+
+  my @jms_ids = sort {$a <=> $b } keys %jms_hash;
+
+  if ( $active_only ) {
+    my @active_jobs;
+    foreach my $jms_id ( @jms_ids ) {
+      push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
+    }
+    return @active_jobs;
+  }
+
+  return @jms_ids;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (18 May 2010)
+sub fetch_active_jms_ids {
+  return fetch_jms_ids(1);
+}
+
+
+
+# 
+# 
+# 
 # Kim Brugger (24 Jun 2010)
 sub report {
 
   my %res = ();
 
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
     my $status     = $jms_hash{ $jms_id }{ status }; 
     $res{ $logic_name }{ $status }++;
@@ -371,9 +417,9 @@ sub report {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     if ( $job_id != -1 ) {
-      my $memory = $hive->job_memory( $job_id ) || 0;
+      my $memory = $backend->job_memory( $job_id ) || 0;
       $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
-      $res{ $logic_name }{ runtime } += $hive->job_runtime( $job_id ) || 0;
+      $res{ $logic_name }{ runtime } += $backend->job_runtime( $job_id ) || 0;
     }
   }
 
@@ -407,12 +453,12 @@ sub total_runtime {
 
   my $runtime = 0;
   
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
     next if ( $job_id == -1 );
 
-    $runtime += int($hive->job_runtime( $job_id )) || 0;
+    $runtime += int($backend->job_runtime( $job_id )) || 0;
   }
 
   return sprintf("Total runtime: %8s\n", format_time( $runtime ));
@@ -440,7 +486,7 @@ sub full_report {
 
   my %printed_logic_name = ();
 
-  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } @jms_ids ) {   
+  foreach my $jms_id ( sort { $analysis_order{ $jms_hash{ $a }{logic_name}} <=> $analysis_order{ $jms_hash{ $b }{logic_name}} } fetch_jms_ids() ) {   
     my $logic_name = $jms_hash{ $jms_id }{ logic_name};
 
     if ( ! $printed_logic_name{ $logic_name } ) {
@@ -463,7 +509,7 @@ sub full_report {
     $report .= sprintf("%3d/%-5d\t%12s\tfailures: %d\n", $jms_id, $job_id, $status2name{ $status }, $jms_hash{ $jms_id }{ failed } || 0);
 
     if ( $job_id != -1 ) {
-      $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($hive->job_runtime( $job_id )), format_memory($hive->job_memory( $job_id )));
+      $report .= sprintf("Runtime: %s || Memory: %s\n", format_time($backend->job_runtime( $job_id )), format_memory($backend->job_memory( $job_id )));
     }
     if ( $jms_hash{ $jms_id }{ output } && ref ($jms_hash{ $jms_id }{ output }) eq 'ARRAY') {
       $report .= sprintf("cmd/output: %s --> %s\n", $jms_hash{ $jms_id }{ command }, join(",", @{$jms_hash{ $jms_id }{ output }}));
@@ -517,12 +563,8 @@ sub mail_report {
 # Kim Brugger (22 Apr 2010)
 sub check_jobs {
 
-  return if ( $dry_run );
+  foreach my $jms_id ( fetch_active_jms_ids ) {
 
-  foreach my $jms_id ( @jms_ids ) {
-      
-    # Only look at the jobs we are currently tracking
-    next if ( ! $jms_hash{ $jms_id }{ tracking } );
 
     if ( ! defined $jms_hash{ $jms_id }{ job_id } ) {
       die "'$jms_id' ==> " . Dumper( $jms_hash{ $jms_id }) . "\n";
@@ -533,7 +575,7 @@ sub check_jobs {
       $status = $jms_hash{ $jms_id }{ status };
     }
     else {	
-      $status = $hive->job_status( $jms_hash{ $jms_id}{ job_id } );
+      $status = $backend->job_status( $jms_hash{ $jms_id}{ job_id } );
       $jms_hash{ $jms_id }{ status } = $status;
     }
 
@@ -561,22 +603,84 @@ sub check_jobs {
 
 
 
+# 
+# Hard ! resets the pipeline. If a analysis failed it is deleted and
+# pushed back to the previous step in the pipeline. If that job
+# resulted in multiple child processes then they and all their spawn
+# is deleted.
+#
+# Did I mention this was a HARD reset?
+#
+# Kim Brugger (26 Apr 2010)
+sub hard_reset {
+  my (@reset_logic_names) = @_;
 
+  # Update job statuses...
+  check_jobs();
+
+  # Only look at the jobs we are currently tracking
+  foreach my $jms_id ( fetch_jms_ids() ) {
+
+    next if (! $jms_hash{ $jms_id });
+    next if ($jms_hash{ $jms_id }{ post_jms_id });
+    # the analysis depends on a previous analysis, and can be rerun
+
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+      my $pre_jms_id = $jms_hash{ $jms_id }{ pre_jms_id };
+      my $pre_logic_name = $jms_hash{ $pre_jms_id }{ logic_name } if ( $pre_jms_id );
+
+      if ($pre_jms_id  && @{$jms_hash{ $pre_jms_id }{ post_jms_id }} > 1 ){
+	my @children = @{$jms_hash{ $pre_jms_id }{ post_jms_id }};
+
+	while (my $child = shift @children ) {
+	  push @children, @{$jms_hash{ $child }{ post_jms_id }} if ($jms_hash{ $child }{ post_jms_id });
+	  delete $jms_hash{ $child };
+	}
+
+      }
+      print "Resubmitted $pre_jms_id after hard reset downstream (due to $jms_id)\n";
+      resubmit_job( $pre_jms_id );
+    }
+    elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
+      print "Tracking $jms_id\n";
+      $jms_hash{ $jms_id }{ tracking } = 1;
+      next;
+    }
+
+  }
+}
 
 # 
 # reset the failed states, so the pipeline can run again
 # 
 # Kim Brugger (26 Apr 2010)
 sub reset {
-  my ($reset_logic_name) = @_;
+  my (@reset_logic_names) = @_;
+
+  # Update job statuses...
+  check_jobs();
 
   # Only look at the jobs we are currently tracking
-  foreach my $jms_id ( @jms_ids ) {
-    delete $jms_hash{ $jms_id } if ($jms_hash{ $jms_id }{ logic_name } eq $reset_logic_name );
+  foreach my $jms_id ( fetch_jms_ids() ) {
+
+    next if ($jms_hash{ $jms_id }{ post_jms_id });
+    # the analysis depends on a previous analysis, and can be rerun
+
+#    print "-->$jms_id\n";
+
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+      $jms_hash{ $jms_id }{command} = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
+      verbose("Resubmitted $jms_id\n", 10);
+      resubmit_job( $jms_id );
+    }
+    elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
+      verbose( "Tracking $jms_id\n", 10);
+      $jms_hash{ $jms_id }{ tracking } = 1;
+      next;
+    }
+
   }
 }
-
-
 
 
 
@@ -635,35 +739,6 @@ sub delete_tmp_files {
 }
 
 
-# 
-# 
-# 
-# Kim Brugger (23 Apr 2010)
-sub dry_run {
-  my ( $start_logic_name ) = @_;
-
-  $dry_run = 1;
-  run( $start_logic_name );
-  $dry_run = 0;
-}
-
-
-
-# 
-# 
-# 
-# Kim Brugger (18 May 2010)
-sub fetch_active_jobs {
-
-  my @active_jobs;
-  foreach my $jms_id ( @jms_ids ) {
-    push @active_jobs, $jms_id if ( $jms_hash{ $jms_id }{ tracking });
-  }
-
-  verbose("@active_jobs\n", 10);
-
-  return @active_jobs;
-}
 
 
 
@@ -677,7 +752,7 @@ sub fetch_jobs {
 #  print " --> @logic_names \n";
 
   my @jobs;
-  foreach my $jms_id ( @jms_ids ) {    
+  foreach my $jms_id ( fetch_jms_ids() ) {    
     push @jobs, $jms_id if ( grep(/$jms_hash{ $jms_id }{ logic_name }/, @logic_names) );
   }
 
@@ -686,14 +761,18 @@ sub fetch_jobs {
 
 
 # 
-# 
+# Set the pre analysis dependencies for each analysis.
 # 
 # Kim Brugger (05 Jul 2010)
-sub analysis_dependencies {
+sub set_analysis_dependencies {
   my ( $logic_name ) = @_;
 
 
   my @logic_names = next_analysis( $logic_name );
+
+  foreach my $next_logic_name ( @logic_names) {
+    push @{$dependencies{ $next_logic_name }}, $logic_name;
+  }
 
   while ( $logic_name = shift @logic_names  ) {
 
@@ -710,6 +789,37 @@ sub analysis_dependencies {
     }
   }
 
+}
+
+
+# 
+# Traverse the flow hash and stores the analysis order
+# 
+# Kim Brugger (09 Sep 2010)
+sub set_analysis_order {
+  my ( $logic_name ) = @_;
+  
+  $analysis_order{ $logic_name } = 1;
+  my @logic_names = ( $logic_name );
+
+  while ( $logic_name = shift @logic_names  ) {
+
+    my @next_logic_names = next_analysis( $logic_name );
+    
+
+    foreach my $next_logic_name ( @next_logic_names ) {
+      
+      $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
+	  if (! $analysis_order{ $next_logic_name } || 
+	      $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
+    }
+    push @logic_names, next_analysis( $logic_name );
+  }
+
+
+#  foreach my $key ( sort {$analysis_order{$a} <=> $analysis_order{$b}} keys %analysis_order ) {
+#    printf("%03d --> $key\n", $analysis_order{ $key });
+#  }
 }
 
 
@@ -750,9 +860,11 @@ sub depends_on_active_jobs {
   my %dependency;
   map { $dependency{ $_ }++ } @{$dependencies{ $logic_name }};
   
-  foreach my $jms_id ( @jms_ids ) {
+  foreach my $jms_id ( fetch_jms_ids() ) {
     next if (! $jms_hash{ $jms_id }{ tracking });
     
+#    print "$jms_id --> $dependency{ $jms_hash{ $jms_id }{ logic_name }}\n";
+
     if ( $dependency{ $jms_hash{ $jms_id }{ logic_name }}) {
       return 1;
     }
@@ -781,17 +893,23 @@ sub run {
 
   $start_time = Time::HiRes::gettimeofday();
 
+  foreach my $start_logic_name ( @start_logic_names ) {
+    set_analysis_dependencies( $start_logic_name );
+    set_analysis_order( $start_logic_name );
+  }
+
   while (1) {
 
     my ($started, $running ) = (0,0);
 
-    my @active_jobs = fetch_active_jobs();
+    my @active_jobs = fetch_active_jms_ids();
+       
+
+#    print Dumper( \@active_jobs );
     
     # nothing running, start from the start_logic_names
     if ( ! @active_jobs ) {
       foreach my $start_logic_name ( @start_logic_names ) {
-	analysis_dependencies( $start_logic_name );
-	$analysis_order{ $start_logic_name } = 1;
         run_analysis( $start_logic_name );
 	$running++;
       }
@@ -818,21 +936,18 @@ sub run {
 
 	  foreach my $next_logic_name ( @next_logic_names ) {
 
-	    $analysis_order{ $next_logic_name } = $analysis_order{ $logic_name } + 1 
-		if (! $analysis_order{ $next_logic_name } || 
-		    $analysis_order{ $next_logic_name } <= $analysis_order{ $logic_name } + 1);
-	    
-
-
 	    # all threads for this run has to finish before we can 
 	    # proceed to the next one. If a failed job exists this will never be 
 	    # possible
 	    if ( $main::analysis{ $next_logic_name }{ sync } ) { 
 	      
+
+	      $DB::single = 1 ;;
+
 	      next if ( $no_restart );
 	      # we do not go further if new jobs has been started or is running.
 	      next if ( @retained_jobs > 0 );
-	      
+
 	      next if (depends_on_active_jobs( $next_logic_name));
 	      
 	      my @depends_on;
@@ -859,7 +974,7 @@ sub run {
 		}
 		
 		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-		run_analysis( $next_logic_name, @inputs);
+		run_analysis( $next_logic_name, $jms_id, @inputs);
 		$started++;
 	      }
 	      
@@ -867,7 +982,7 @@ sub run {
 	    # unsynced part of the pipeline, run the next job.
 	    else {
 	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
-	      run_analysis( $next_logic_name, $jms_hash{ $jms_id }{ output });
+	      run_analysis( $next_logic_name, $jms_id, $jms_hash{ $jms_id }{ output });
 	      $started++;
 	    }
 	  }
@@ -919,11 +1034,12 @@ sub run {
 # 
 # Kim Brugger (18 May 2010)
 sub run_analysis {
-  my ( $logic_name, @inputs) = @_;
+  my ( $logic_name, $pre_id, @inputs) = @_;
 
   my $function = function_module($main::analysis{ $logic_name }{ function }, $logic_name);
 	
   $current_logic_name = $logic_name;
+  $pre_jms_id         = $pre_id || undef;
 
   {
     no strict 'refs';
@@ -1057,7 +1173,7 @@ sub validate_flow {
   my @analyses;
 
   foreach my $start_logic_name ( @start_logic_names ) {
-    analysis_dependencies( $start_logic_name );
+    set_analysis_dependencies( $start_logic_name );
   }
 
   my @logic_names = @start_logic_names;
@@ -1108,7 +1224,6 @@ sub validate_flow {
 sub store_state {
   my ($filename ) = @_;
 
-  return if ( $dry_run);
   return if ( ! $use_storing );
 
   if ( ! $filename ) {
@@ -1119,7 +1234,6 @@ sub store_state {
   verbose("JMS :: Storing state in: '$filename'\n", 2);
 
   my $blob = {delete_files       => \@delete_files,
-	      jms_ids            => \@jms_ids,
 	      jms_hash           => \%jms_hash,
 	      save_interval      => $save_interval,
 	      last_save          => $last_save,
@@ -1127,19 +1241,18 @@ sub store_state {
 	      max_retry          => $max_retry,
 	      sleep_time         => $sleep_time,
 	      max_jobs           => $max_jobs,
-	      hive               => $hive,
+	      backend            => $backend,
 	      job_counter        => $job_counter,
 	      start_time         => $start_time,
 	      end_time           => $end_time,
 	      
-	      stats              => $hive->stats,
+	      stats              => $backend->stats,
 	      
 	      retained_jobs      => \@retained_jobs,
 	      current_logic_name => $current_logic_name,
+
 	      #main file variables.
 	      argv               => \@argv,
-#	      flow               => \%main::flow,
-#	      analysis           => \%main::analysis,
 	      analysis_order     => \%analysis_order,
 	      dependencies       => \%dependencies};
 
@@ -1167,7 +1280,6 @@ sub restore_state {
   my $blob = Storable::retrieve( $filename);
 
   @delete_files       = @{$$blob{delete_files}};
-  @jms_ids            = @{$$blob{jms_ids}};
   %jms_hash           = %{$$blob{jms_hash}};
 
   $save_interval      = $$blob{save_interval};
@@ -1182,17 +1294,16 @@ sub restore_state {
   $start_time         = $$blob{start_time};
   $end_time           = $$blob{end_time};
 	      
-  @retained_jobs      = $$blob{retained_jobs};
+  @retained_jobs      = @{$$blob{retained_jobs}};
   $current_logic_name = $$blob{current_logic_name};
 
   @main::ARGV         = @{$$blob{argv}};
-#  %main::flow         = %{$$blob{flow}};
-#  %main::analysis     = %{$$blob{analysis}};
   %analysis_order     = %{$$blob{analysis_order}};
   %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
-  hive($$blob{hive});
-  $hive->stats($$blob{stats});
+  hive($$blob{hive}) if ( $$blob{hive} );
+  backend($$blob{backend}) if ( $$blob{backend});
+  $backend->stats($$blob{stats});
 }
 
 
