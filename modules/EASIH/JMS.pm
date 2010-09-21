@@ -15,8 +15,6 @@ use Carp;
 
 use EASIH::JMS::Backend;
 
-my $VERSION        = "1.20";
-
 my $last_save      =   0;
 my $save_interval  = 300;
 my $verbose_level  =   0;
@@ -185,6 +183,20 @@ sub save_interval {
 # 
 # Kim Brugger (20 Sep 2010)
 sub version {
+
+  my $VERSION   = "unknown";
+
+  my $libdir = $0;
+  if ($libdir =~ /.*\//) {
+    $libdir =~ s/(.*\/).*/$1/;
+    $VERSION = `cd $libdir; git describe`;
+  }
+  else {
+    $VERSION = `git describe`;
+  }
+
+  chomp( $VERSION );
+
   return $VERSION;
 }
 
