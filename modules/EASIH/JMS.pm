@@ -571,6 +571,7 @@ sub mail_report {
   $0 =~ s/.*\///;
 
   print $mail "Running directory: $cwd, Freeze file: $0.$$\n";
+  print $mail "easih-pipeline version: " . version() . "\n";
 
   print $mail $extra. "\n\n";
   
@@ -1339,6 +1340,10 @@ sub restore_state {
   hive($$blob{hive}) if ( $$blob{hive} );
   backend($$blob{backend}) if ( $$blob{backend});
   $backend->stats($$blob{stats});
+  
+  # Overwrite the argv array with the values just loaded...
+  @argv = @main::ARGV;
+
 }
 
 
