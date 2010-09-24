@@ -184,16 +184,19 @@ sub save_interval {
 # Kim Brugger (20 Sep 2010)
 sub version {
 
+
+  my $libdir = $INC{ 'EASIH/JMS.pm'};
+
   my $VERSION   = "unknown";
 
-  my $libdir = $0;
-  if ($libdir =~ /.*\//) {
+  if ($libdir && $libdir =~ /.*\//) {
     $libdir =~ s/(.*\/).*/$1/;
-    $VERSION = `cd $libdir; git describe`;
+    $VERSION = `cd $libdir; git describe 2> /dev/null`;
   }
   else {
     $VERSION = `git describe`;
   }
+  $VERSION ||= "unknown";
 
   chomp( $VERSION );
 
