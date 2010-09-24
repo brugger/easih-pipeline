@@ -39,7 +39,7 @@ sub submit_job {
   
 #  print "$cmd \n" if ( $verbose );
   
-  my $job_id = 0;
+  my $job_id = -100;
     
   if ( -s $tmp_file ) { 
     open (my $tfile, $tmp_file) || die "Could not open '$tmp_file':$1\n";
@@ -64,6 +64,8 @@ sub submit_job {
 # Kim Brugger (18 May 2010)
 sub job_status {
   my ($self, $job_id) = @_;
+
+  return $EASIH::JMS::FAILED if ( $job_id = -100);
 
   my %res;
   open (my $qspipe, "qstat -f $job_id 2> /dev/null | ") || die "Could not open 'qstat-pipeline': $!\n";
