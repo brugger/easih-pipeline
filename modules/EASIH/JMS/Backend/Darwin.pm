@@ -65,7 +65,7 @@ sub submit_job {
 sub job_status {
   my ($self, $job_id) = @_;
 
-  return $EASIH::JMS::FAILED if ( $job_id = -100);
+  return $EASIH::JMS::FAILED if ( $job_id == -100);
 
   my %res;
   open (my $qspipe, "qstat -f $job_id 2> /dev/null | ") || die "Could not open 'qstat-pipeline': $!\n";

@@ -26,7 +26,7 @@ my $pre_jms_id     = undef;
 my $use_storing    =   1; # debugging purposes
 my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
-
+my $freeze_file;
 
 my $no_restart     =   0; # failed jobs that cannot be restarted. 
 
@@ -257,7 +257,6 @@ sub submit_system_job {
 sub submit_job {
   my ($cmd, $output, $system) = @_;
 
-
   if ( ! $cmd ) {
      Carp::confess(" no cmd given\n");
   }
@@ -318,8 +317,10 @@ sub submit_job {
 sub resubmit_job {
   my ( $jms_id ) = @_;
 
+
   my $instance   = $jms_hash{ $jms_id };
   my $logic_name = $$instance{logic_name};
+
 
   my $job_id = $backend->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
   
@@ -378,6 +379,20 @@ sub format_time {
 }
 
 
+
+# 
+# 
+# 
+# Kim Brugger (24 Sep 2010)
+sub freeze_file {
+
+  my $filename = $0;
+  $filename =~ s/.*\///;
+  
+  return "$filename.$$";
+}
+
+
 # 
 # 
 # 
@@ -389,7 +404,9 @@ sub get_timestamp {
 
   use POSIX 'strftime';
   my $time = strftime('%d/%m/%y %H.%M', localtime);
-  return "[$time \@$host]\n" . "-"x30 . "\n";
+
+
+  return "[$time \@$host ".(freeze_file())."]\n" . "-"x30 . "\n";
 
 }
 
@@ -482,7 +499,7 @@ sub total_runtime {
   foreach my $jms_id ( fetch_jms_ids() ) {
     my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
    
-    next if ( $job_id == -1 );
+    next if ( $job_id == -1 || !$job_id );
 
     $runtime += int($backend->job_runtime( $job_id )) || 0;
   }
@@ -571,9 +588,8 @@ sub mail_report {
   print $mail report() . "\n\n";
   print $mail total_runtime();
   print $mail real_runtime();
-  $0 =~ s/.*\///;
 
-  print $mail "Running directory: $cwd, Freeze file: $0.$$\n";
+  print $mail "Running directory: $cwd, Freeze file: ".(freeze_file())."\n";
   print $mail "easih-pipeline version: " . version() . "\n";
 
   print $mail $extra. "\n\n";
@@ -649,7 +665,6 @@ sub hard_reset {
 
   restore_state( $freezefile);
 
-
   # Update job statuses...
   check_jobs();
 
@@ -674,7 +689,7 @@ sub hard_reset {
 
       }
       print "Resubmitted $pre_jms_id after hard reset downstream (due to $jms_id)\n";
-      resubmit_job( $pre_jms_id );
+     resubmit_job( $pre_jms_id );
     }
     elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
       print "Tracking $jms_id\n";
@@ -1265,10 +1280,7 @@ sub store_state {
 
   return if ( ! $use_storing );
 
-  if ( ! $filename ) {
-    $0 =~ s/.*\///;
-    $filename = "$0.$$";
-  }
+  $filename = freeze_file();
   
   verbose("JMS :: Storing state in: '$filename'\n", 2);
 
@@ -1309,10 +1321,6 @@ sub store_state {
 sub restore_state {
   my ( $filename ) = @_;
 
-  if ( ! $filename ) {
-    $0 =~ s/.*\///;
-    $filename = "$0.freeze";
-  }
   
   verbose("JMS :: Re-storing state from: '$filename'\n", 2);
 
@@ -1340,7 +1348,7 @@ sub restore_state {
   %analysis_order     = %{$$blob{analysis_order}};
   %dependencies       = %{$$blob{dependencies}} if ($$blob{dependencies});
 
-  hive($$blob{hive}) if ( $$blob{hive} );
+#  hive($$blob{hive}) if ( $$blob{hive} );
   backend($$blob{backend}) if ( $$blob{backend});
   $backend->stats($$blob{stats});
   
@@ -1351,15 +1359,19 @@ sub restore_state {
 
 
 sub catch_ctrl_c {
-    $main::SIG{INT} = \&catch_ctrl_c;
+    $main::SIG{INT } = \&catch_ctrl_c;
+    $main::SIG{KILL} = \&catch_ctrl_c;
+    $main::SIG{HUP } = \&catch_ctrl_c;
     fail("Caught a ctrl-c\n");
+    store_state();
 }
 
 
 BEGIN {
   $SIG{INT} = \&catch_ctrl_c;
+  $SIG{KILL} = \&catch_ctrl_c;
+  $SIG{HUP} = \&catch_ctrl_c;
   @argv = @main::ARGV;
-
 }
 
 
