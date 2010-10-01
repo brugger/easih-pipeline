@@ -27,7 +27,7 @@ $sleep_time = $opts{'S'} if ($opts{'S'});
 #print "Starting sleep for $sleep_time seconds\n";
 sleep($sleep_time);
 
-if ( 0 && $opts{'F'} || $fail_rate > int(rand(100))) {
+if ($opts{'F'} || $fail_rate > int(rand(100))) {
   print "------- Failed -----------\n";
   exit 1;
 }
