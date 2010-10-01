@@ -17,21 +17,22 @@ use EASIH::JMS::Misc;
 use EASIH::JMS::Samtools;
 use EASIH::JMS::Picard;
 
-my $executer = "/home/kb468/easih-pipeline/scripts/dummies/local.pl";
+my $executer = "/home/kb468/easih-pipeline/dev/dummies/local.pl";
 
 
 
 our %analysis = ('A'   => { function   => 'single'},
 					 
-		 'B'   => { function   => 'multiple'},
+		 'B'   => { function   => 'single_slow'},
 		 
-		 'C'   => { function   => 'multiple'},
+		 'C'   => { function   => 'single'},
 		 
-		 'D'   => { function   => 'single'},
+		 'D'   => { function   => 'multiple'},
 
-		 'E'   => { function   => 'single'},
+		 'E'   => { function   => 'multiple'},
 		 
-		 'F'   => { function   => 'single'},
+		 'F'   => { function   => 'single_slow',
+			    sync       => 1},
 		 
 		 'G'   => { function   => 'single',
 			    sync       => 1},
@@ -101,6 +102,14 @@ sub single {
   my ($input) = @_;
 
   my $cmd = "$executer ";
+  my $tmp_file = 'tyt';
+  EASIH::JMS::submit_job("$cmd ", $tmp_file);
+}
+
+sub single_slow {
+  my ($input) = @_;
+
+  my $cmd = "$executer -S 60";
   my $tmp_file = 'tyt';
   EASIH::JMS::submit_job("$cmd ", $tmp_file);
 }
