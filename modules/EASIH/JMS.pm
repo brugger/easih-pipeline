@@ -22,7 +22,7 @@ my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
 my $current_logic_name;
-my $pre_jms_id     = undef;
+my $pre_jms_ids    = undef;
 my $use_storing    =   1; # debugging purposes
 my $max_jobs       =  -1; # to control that we do not flood Darwin, or if local, block the machine. -1 is no limit
 my @argv; # the argv from main is fetched at load time, and a copy kept here so we can store it later
@@ -280,7 +280,7 @@ sub submit_job {
 		   command     => $cmd,
 		   output      => $output,
 		   logic_name  => $current_logic_name,
-		   pre_jms_id  => $pre_jms_id};
+		   pre_jms_ids => $pre_jms_ids};
 
 
   if ( $system ) {
@@ -305,7 +305,9 @@ sub submit_job {
 
   $jobs_submitted++;      
 
-  push @{$jms_hash{ $pre_jms_id }{ post_jms_id }}, $jms_id if ( $pre_jms_id );
+  foreach my $pre_jms_id ( @$pre_jms_ids) {
+    push @{$jms_hash{ $pre_jms_id }{ post_jms_id }}, $jms_id if ( $pre_jms_id );
+  }
 }
 
 
@@ -676,20 +678,22 @@ sub hard_reset {
     # the analysis depends on a previous analysis, and can be rerun
 
     if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
-      my $pre_jms_id = $jms_hash{ $jms_id }{ pre_jms_id };
-      my $pre_logic_name = $jms_hash{ $pre_jms_id }{ logic_name } if ( $pre_jms_id );
+      my $pre_jms_ids = $jms_hash{ $jms_id }{ pre_jms_ids };
+      
+      foreach my $pre_jms_id ( @$pre_jms_ids ) {
 
-      if ($pre_jms_id  && @{$jms_hash{ $pre_jms_id }{ post_jms_id }} > 1 ){
-	my @children = @{$jms_hash{ $pre_jms_id }{ post_jms_id }};
-
-	while (my $child = shift @children ) {
-	  push @children, @{$jms_hash{ $child }{ post_jms_id }} if ($jms_hash{ $child }{ post_jms_id });
-	  delete $jms_hash{ $child };
+	if ($pre_jms_id  && @{$jms_hash{ $pre_jms_id }{ post_jms_id }} > 1 ){
+	  my @children = @{$jms_hash{ $pre_jms_id }{ post_jms_id }};
+	  
+	  while (my $child = shift @children ) {
+	    push @children, @{$jms_hash{ $child }{ post_jms_id }} if ($jms_hash{ $child }{ post_jms_id });
+	    delete $jms_hash{ $child };
+	  }
+	  
 	}
-
+	print "Resubmitted $pre_jms_id after hard reset downstream (due to $jms_id)\n";
+	resubmit_job( $pre_jms_id );
       }
-      print "Resubmitted $pre_jms_id after hard reset downstream (due to $jms_id)\n";
-     resubmit_job( $pre_jms_id );
     }
     elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
       print "Tracking $jms_id\n";
@@ -1021,14 +1025,15 @@ sub run {
 	      
 	      if ( $all_threads_done ) {
 		# collect inputs, and set their tracking to 0
-		my @inputs;
+		my @inputs; my @jms_ids;
 		foreach my $ljms_id ( @depend_jobs ) {
 		  $jms_hash{ $ljms_id }{ tracking } = 0;
 		  push @inputs, $jms_hash{ $ljms_id }{ output };
+		  push @jms_ids, $ljms_id;
 		}
 		
 		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-		run_analysis( $next_logic_name, $jms_id, @inputs);
+		run_analysis( $next_logic_name, \@jms_ids, @inputs);
 		$started++;
 	      }
 	      
@@ -1036,7 +1041,7 @@ sub run {
 	    # unsynced part of the pipeline, run the next job.
 	    else {
 	      verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name  \n", 2);
-	      run_analysis( $next_logic_name, $jms_id, $jms_hash{ $jms_id }{ output });
+	      run_analysis( $next_logic_name, [$jms_id], $jms_hash{ $jms_id }{ output });
 	      $started++;
 	    }
 	  }
@@ -1088,12 +1093,12 @@ sub run {
 # 
 # Kim Brugger (18 May 2010)
 sub run_analysis {
-  my ( $logic_name, $pre_id, @inputs) = @_;
+  my ( $logic_name, $pre_ids, @inputs) = @_;
 
   my $function = function_module($main::analysis{ $logic_name }{ function }, $logic_name);
 	
   $current_logic_name = $logic_name;
-  $pre_jms_id         = $pre_id || undef;
+  $pre_jms_ids        = $pre_ids || undef;
 
   {
     no strict 'refs';
