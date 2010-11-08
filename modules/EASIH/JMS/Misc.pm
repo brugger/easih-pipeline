@@ -44,5 +44,22 @@ sub find_program {
 
 
 
+# 
+# 
+# 
+# Kim Brugger (08 Nov 2010)
+sub bwa_version {
+  my ($bwa ) = @_;
+
+  $bwa = find_program('bwa') if ( ! $bwa );
+  return "Cannot find bwa\n" if ( ! $bwa );
+
+  my $version = `$bwa  2>&1 | head -n 3 | tail -n1`;
+  chomp( $version );
+  return $version;
+}
+
+
+
 
 1;

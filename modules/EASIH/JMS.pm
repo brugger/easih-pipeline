@@ -77,6 +77,15 @@ sub verbosity {
 
 
 # 
+# show how the (inital) pipeline was called...
+# 
+# Kim Brugger (08 Nov 2010)
+sub args {
+  return join(" ", @argv) . "\n";
+}
+
+
+# 
 # 
 # 
 # Kim Brugger (05 Jul 2010)
