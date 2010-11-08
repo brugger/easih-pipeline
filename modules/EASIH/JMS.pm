@@ -733,7 +733,7 @@ sub reset {
     }
     elsif (! $jms_hash{ $jms_id }{ post_jms_id }) {
       verbose( "Tracking $jms_id\n", 10);
-      $jms_hash{ $jms_id }{ tracking } = 1;
+      #$jms_hash{ $jms_id }{ tracking } = 1;
       next;
     }
 
@@ -1366,7 +1366,7 @@ sub restore_state {
 sub catch_ctrl_c {
     $main::SIG{INT } = \&catch_ctrl_c;
     $main::SIG{KILL} = \&catch_ctrl_c;
-    $main::SIG{HUP } = \&catch_ctrl_c;
+#    $main::SIG{HUP } = \&catch_ctrl_c;
     fail("Caught a ctrl-c\n");
     store_state();
 }
@@ -1375,7 +1375,8 @@ sub catch_ctrl_c {
 BEGIN {
   $SIG{INT} = \&catch_ctrl_c;
   $SIG{KILL} = \&catch_ctrl_c;
-  $SIG{HUP} = \&catch_ctrl_c;
+
+#  $SIG{HUP} = \&catch_ctrl_c;
   @argv = @main::ARGV;
 }
 
