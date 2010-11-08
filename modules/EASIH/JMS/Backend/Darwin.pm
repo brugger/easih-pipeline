@@ -30,6 +30,8 @@ sub submit_job {
 
 #  print "-->>> cd $EASIH::JMS::cwd; $cmd \n";
 
+#  my $tries = 3;
+# RERUN:
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
 
@@ -38,7 +40,6 @@ sub submit_job {
   close( $qpipe );
   
 #  print "$cmd \n" if ( $verbose );
-  
   my $job_id = -100;
     
   if ( -s $tmp_file ) { 
@@ -52,6 +53,9 @@ sub submit_job {
   }
   
   system "rm $tmp_file";
+  # Sometimes the submission fails...
+#  goto RERUN if ( $job_id == -100 && $tries--);
+    
   
   return $job_id;
 }
