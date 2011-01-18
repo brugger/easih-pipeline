@@ -20,7 +20,7 @@ while (<$in>) {
 }
 $blob =~ s/^\$VAR\d+\s*=\s*//;
 
-#print ( $blob );
-$blob = eval $blob;
-#print Dumper( $blob );
-Storable::store($blob, $freezefile);
+print ( $blob );
+$blob = eval {$blob};
+print Dumper( $blob );
+#Storable::store($blob, $freezefile);

@@ -28,6 +28,17 @@ sub job_status {
  
 }
 
+
+# 
+# 
+# 
+# Kim Brugger (18 May 2010)
+sub kill {
+
+  die "kill is not implemented for this HIVE\n";
+ 
+}
+
 sub job_runtime {
 #  print "job_runtime has not been implemented for the hive you are using!\n";
   return 0;
