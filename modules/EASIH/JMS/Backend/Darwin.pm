@@ -34,7 +34,7 @@ sub submit_job {
 # RERUN:
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
-
+  $tmp_file .= ".darwin";
   open (my $qpipe, " | qsub $limit > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $EASIH::JMS::cwd; $cmd";
   close( $qpipe );
@@ -52,10 +52,7 @@ sub submit_job {
     $job_id =~ s/(\d+?)\..*/$1/;
   }
   
-  system "rm $tmp_file";
-  # Sometimes the submission fails...
-#  goto RERUN if ( $job_id == -100 && $tries--);
-    
+  system "rm $tmp_file" if ( $job_id != -100 );
   
   return $job_id;
 }
@@ -120,6 +117,17 @@ sub job_status {
 
 }
 
+
+
+
+# 
+# 
+# 
+# Kim Brugger (06 Jan 2011)
+sub kill {
+  my ($self, $job_id) = @_;
+  system "qdel $job_id 2> /dev/null";
+}
 
 
 # 

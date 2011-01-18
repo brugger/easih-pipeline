@@ -55,6 +55,7 @@ our $RUNNING     =    3;
 our $QUEUEING    =    4;
 our $RESUBMITTED =    5;
 our $SUBMITTED   =    6;
+our $KILLED      =   99;
 our $UNKNOWN     =  100;
 
 my %s2status = ( 1   =>  "Finished",
@@ -92,10 +93,10 @@ sub args {
 sub verbose {
   my ( $message, $level) = @_;
   $level ||= 0;
-  
+ 
   return if ( $level > $verbose_level);
-  $message =~ s/\Z//;
-  print " ::::" . " $message\n";
+  $message =~ s/\n\z//g;
+  print STDERR  " ::::" . " $message\n";
 
 }
 
@@ -305,7 +306,8 @@ sub submit_job {
   }
   else {
 
-    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+#    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=500mb,walltime=00:20:00");
     
     $$instance{ job_id } = $job_id;
   }    
@@ -340,6 +342,23 @@ sub resubmit_job {
   $$instance{ tracking } = 1;
   $jobs_submitted++;      
 
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub killall {
+
+  foreach my $jms_id ( fetch_jms_ids() ) {
+    my $status     = $jms_hash{ $jms_id }{ status };
+    
+    if ( $status != $FINISHED ) {
+      $backend->kill(  $jms_hash{ $jms_id}{ job_id } );
+    }
+  }
 }
 
 
@@ -397,10 +416,13 @@ sub format_time {
 # Kim Brugger (24 Sep 2010)
 sub freeze_file {
 
+  return $freeze_file if ( $freeze_file );
+
   my $filename = $0;
   $filename =~ s/.*\///;
-  
-  return "$filename.$$";
+
+  $freeze_file = "$filename.$$";
+  return $freeze_file;
 }
 
 
@@ -499,6 +521,7 @@ sub report {
 
 
 
+
 # 
 # 
 # 
@@ -558,6 +581,7 @@ sub full_report {
 			$QUEUEING    => "Queueing",
 			$RESUBMITTED => "Re-submitted",
 			$SUBMITTED   => "Submitted",
+			$KILLED      => "Killed",
 			$UNKNOWN     => "Unknown" );
     
     $report .= sprintf("%3d/%-5d\t%12s\tfailures: %d\n", $jms_id, $job_id, $status2name{ $status }, $jms_hash{ $jms_id }{ failed } || 0);
@@ -686,7 +710,10 @@ sub hard_reset {
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
 
-    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED  ||  
+	 $jms_hash{ $jms_id }{ status } == $UNKNOWN ||  
+	 $jms_hash{ $jms_id }{ status } == $KILLED) {
+
       my $pre_jms_ids = $jms_hash{ $jms_id }{ pre_jms_ids };
       
       foreach my $pre_jms_id ( @$pre_jms_ids ) {
@@ -713,7 +740,7 @@ sub hard_reset {
   }
 }
 
-# 
+# soft-reset... 
 # reset the failed states, so the pipeline can run again
 # 
 # Kim Brugger (26 Apr 2010)
@@ -736,7 +763,10 @@ sub reset {
     next if ($jms_hash{ $jms_id }{ post_jms_id });
     # the analysis depends on a previous analysis, and can be rerun
 
-    if ( $jms_hash{ $jms_id }{ status } == $FAILED ||  $jms_hash{ $jms_id }{ status } == $UNKNOWN) {
+    if ( $jms_hash{ $jms_id }{ status } == $FAILED  ||  
+	 $jms_hash{ $jms_id }{ status } == $UNKNOWN || 
+	 $jms_hash{ $jms_id }{ status } == $KILLED ) {
+
       verbose("Resubmitted $jms_id\n", 10);
       resubmit_job( $jms_id );
     }
@@ -1055,7 +1085,7 @@ sub run {
 	    }
 	  }
 	}
-	elsif ( $jms_hash{ $jms_id }{ status } == $FAILED ) {
+	elsif ( $jms_hash{ $jms_id }{ status } == $FAILED || $jms_hash{ $jms_id }{ status } == $KILLED ) {
 	  $jms_hash{ $jms_id }{ tracking } = 0;
 #	  $no_restart++;
 	}
