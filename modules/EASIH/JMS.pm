@@ -200,10 +200,10 @@ sub version {
 
   if ($libdir && $libdir =~ /.*\//) {
     $libdir =~ s/(.*\/).*/$1/;
-    $VERSION = `cd $libdir; git describe 2> /dev/null`;
+    $VERSION = `cd $libdir; git describe --always --dirty 2> /dev/null`;
   }
   else {
-    $VERSION = `git describe`;
+    $VERSION = `git describe --always --dirty`;
   }
   $VERSION ||= "unknown";
 
