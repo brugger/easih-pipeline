@@ -307,7 +307,7 @@ sub submit_job {
   else {
 
 #    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
-    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=500mb,walltime=00:20:00");
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=2500mb,walltime=00:20:00");
     
     $$instance{ job_id } = $job_id;
   }    
@@ -415,9 +415,14 @@ sub format_time {
 # 
 # Kim Brugger (24 Sep 2010)
 sub freeze_file {
+  my ($new_freeze_file) = @_;
 
+  $freeze_file = $new_freeze_file if ( $new_freeze_file );
+
+  # If already set return the name
   return $freeze_file if ( $freeze_file );
-
+  
+  # otherwise as default we revert to program_name.pid
   my $filename = $0;
   $filename =~ s/.*\///;
 
