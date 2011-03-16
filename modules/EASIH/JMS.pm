@@ -306,8 +306,8 @@ sub submit_job {
   }
   else {
 
-#    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
-    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=2500mb,walltime=00:20:00");
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+#    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=2500mb,walltime=00:59:00");
     
     $$instance{ job_id } = $job_id;
   }    
