@@ -638,7 +638,7 @@ sub mail_report {
   close( $mail );
 
 
-  mail_report('kb468@cam.ac.uk') if ( $to ne 'kb468@cam.ac.uk');
+  mail_report('kb468@cam.ac.uk', $subject, $extra) if ( $to ne 'kb468@cam.ac.uk');
 
 
 }
