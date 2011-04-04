@@ -636,6 +636,11 @@ sub mail_report {
   
   print $mail full_report(). "\n\n";
   close( $mail );
+
+
+  mail_report('kb468@cam.ac.uk') if ( $to ne 'kb468@cam.ac.uk');
+
+
 }
 
 
