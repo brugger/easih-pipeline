@@ -14,8 +14,8 @@ use Getopt::Std;
 use lib '/home/kb468/easih-pipeline/modules';
 use EASIH::JMS;
 use EASIH::JMS::Misc;
-use EASIH::JMS::Samtools;
-use EASIH::JMS::Picard;
+#use EASIH::JMS::Samtools;
+#use EASIH::JMS::Picard;
 
 my $executer = "/home/kb468/easih-pipeline/dev/dummies/local.pl";
 
@@ -56,6 +56,7 @@ getopts('R:', \%opts);
 
 #EASIH::JMS::backend('Darwin');
 EASIH::JMS::backend('Local');
+EASIH::JMS::backend('SGE');
 EASIH::JMS::max_retry(3);
 
 if ( $opts{R} ) {

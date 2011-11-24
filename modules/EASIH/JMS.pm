@@ -501,7 +501,8 @@ sub report {
 
   return if ( keys %res == 0);
 
-  my $report = get_timestamp(). "Run statistics:\n";
+  my $report = get_timestamp(). "Run statistics:   ||  Runtime   ||  MaxMemory ||  D  R  Q  F  U\n";
+
   foreach my $logic_name ( sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res ) {
     my $queue_stats;
 
@@ -509,7 +510,7 @@ sub report {
     my $sub_other = ($res{ $logic_name }{ $QUEUEING  } || 0);
     $sub_other += ($res{ $logic_name }{ $RESUBMITTED  } || 0);
     $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
-    $queue_stats .= sprintf("%02d/%02d",$sub_other, ($res{ $logic_name }{ failed  } || 0));
+    $queue_stats .= sprintf("%02d/%02d/%02d",$sub_other, ($res{ $logic_name }{ failed  } || 0),($res{ $logic_name }{ $UNKNOWN  } || 0));
 
     $report .= sprintf("%-17s ||  %8s  || %10s || $queue_stats\n", $logic_name,
 		       format_time($res{ $logic_name }{ runtime }), format_memory($res{ $logic_name }{ memory }));
