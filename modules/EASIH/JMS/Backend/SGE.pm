@@ -33,7 +33,7 @@ sub submit_job {
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
   $tmp_file .= ".sge";
-  open (my $qpipe, " | qsub -S /bin/sh  > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
+  open (my $qpipe, " | qsub -cwd -S /bin/sh  > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $EASIH::JMS::cwd; $cmd";
   close( $qpipe );
   
