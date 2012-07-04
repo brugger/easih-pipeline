@@ -1,9 +1,9 @@
-package EASIH::JMS::Backend;
+package EASIH::Pipeline::Backend;
 
-use EASIH::JMS::Backend::DetachedDummy;
-use EASIH::JMS::Backend::Local;
-use EASIH::JMS::Backend::Darwin;
-use EASIH::JMS::Backend::SGE;
+use EASIH::Pipeline::Backend::DetachedDummy;
+use EASIH::Pipeline::Backend::Local;
+use EASIH::Pipeline::Backend::Darwin;
+use EASIH::Pipeline::Backend::SGE;
 
 use strict;
 use warnings;

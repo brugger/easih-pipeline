@@ -1,4 +1,4 @@
-package EASIH::JMS;
+package EASIH::Pipeline;
 # 
 # JobManagementSystem framework for running pipelines everywhere!
 # 
@@ -13,11 +13,11 @@ use File::Temp;
 use Time::HiRes;
 use Carp;
 
-use EASIH::JMS::Backend;
+use EASIH::Pipeline::Backend;
 
 my $last_save      =   0;
 my $save_interval  = 300;
-my $verbose_level  =   0;
+my $verbose_level  =   20;
 my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
@@ -32,7 +32,7 @@ my $no_restart     =   0; # failed jobs that cannot be restarted.
 
 # default dummy hive that will fail gracefully, and the class that every other hive
 # should inherit from.
-my $backend           = "EASIH::JMS::Backend";
+my $backend           = "EASIH::Pipeline::Backend";
 
 my ($start_time, $end_time);
 my @delete_files;
@@ -47,7 +47,6 @@ our $cwd      = `pwd`;
 chomp($cwd);
 
 my %dependencies;
-
 
 our $FINISHED    =    1;
 our $FAILED      =    2;
@@ -65,6 +64,63 @@ my %s2status = ( 1   =>  "Finished",
 		 5   =>  "Resubmitted",
 		 6   =>  "Submitted",
 		 100 =>  "Unknown");
+
+
+my %analysis;
+my %flow;
+
+my @start_steps;
+
+# 
+# 
+# 
+# Kim Brugger (14 Jun 2012)
+sub add_step {
+  my( $pre_name, $name, $function_name, $cluster_param) = @_;
+
+  $function_name ||= $name;
+
+  $analysis{ $name } = {function => $function_name,
+			cparam   => $cluster_param};
+
+  push @{$flow{ $pre_name}}, $name;
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (14 Jun 2012)
+sub add_start_step {
+  my( $name, $function_name, $cluster_param) = @_;
+
+  $function_name ||= $name;
+
+  $analysis{ $name } = {function => $function_name,
+			cparam   => $cluster_param};
+
+  push @start_steps, $name;
+
+}
+
+
+# 
+# 
+# 
+# Kim Brugger (14 Jun 2012)
+sub add_merge_step {
+  my($pre_name, $name, $function_name, $cluster_param) = @_;
+
+  $function_name ||= $name;
+
+  $analysis{ $name } = {function => $function_name,
+			cparam   => $cluster_param,
+			sync     => 1};
+
+  push @{$flow{ $pre_name}}, $name;
+
+}
+
 
 
 # 
@@ -136,9 +192,9 @@ sub backend {
   
   if ( $backend ) {
     # strip away the the expected class
-    $backend =~ s/EASIH::JMS::Backend:://;
+    $backend =~ s/EASIH::Pipeline::Backend:://;
     # and (re)append it (again);
-    $backend = "EASIH::JMS::Backend::".$backend;
+    $backend = "EASIH::Pipeline::Backend::".$backend;
   }
 
   return $backend;
@@ -157,12 +213,12 @@ sub hive {
   
   if ( $backend ) {
     # strip away the the expected class
-    $backend =~ s/EASIH::JMS::Backend:://;
-    $backend =~ s/EASIH::JMS::Hive:://;
+    $backend =~ s/EASIH::Pipeline::Backend:://;
+    $backend =~ s/EASIH::Pipeline::Hive:://;
     # a renaming of one of the backend modules...
     $backend = "Local" if ( $backend eq "Kluster");
     # and (re)append it (again);
-    $backend = "EASIH::JMS::Backend::".$backend;
+    $backend = "EASIH::Pipeline::Backend::".$backend;
   }
 
   return $backend;
@@ -195,7 +251,7 @@ sub save_interval {
 sub version {
 
 
-  my $libdir = $INC{ 'EASIH/JMS.pm'};
+  my $libdir = $INC{ 'EASIH/Pipeline.pm'};
 
   my $VERSION   = "unknown";
 
@@ -306,7 +362,7 @@ sub submit_job {
   }
   else {
 
-    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $main::analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $analysis{$current_logic_name}{ hpc_param });
 #    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=2500mb,walltime=00:59:00");
     
     $$instance{ job_id } = $job_id;
@@ -335,7 +391,7 @@ sub resubmit_job {
   my $logic_name = $$instance{logic_name};
 
 
-  my $job_id = $backend->submit_job( $$instance{ command }, $main::analysis{$logic_name}{ hpc_param });
+  my $job_id = $backend->submit_job( $$instance{ command }, $analysis{$logic_name}{ hpc_param });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -823,7 +879,7 @@ sub next_analysis {
   
   my @res;
 
-  my $next = $main::flow{ $logic_name} || undef;
+  my $next = $flow{ $logic_name} || undef;
   if ( ref ( $next ) eq "ARRAY" ) {
     @res = @$next;
   }
@@ -857,7 +913,7 @@ sub delete_tmp_files {
 sub fetch_jobs {
   my ( @logic_names ) = @_;
 
-#  print " --> @logic_names \n";
+  print " --> @logic_names \n";
 
   my @jobs;
   foreach my $jms_id ( fetch_jms_ids() ) {    
@@ -993,6 +1049,9 @@ sub depends_on_active_jobs {
 sub run {
   my (@start_logic_names) = @_;
 
+
+  @start_logic_names = @start_steps if ( ! @start_logic_names );
+
   # Just to make sure that the script is setup as it should be
   # the overhead of doing this is close to null, and it saves 
   # time if things does not crash.
@@ -1047,10 +1106,10 @@ sub run {
 	    # all threads for this run has to finish before we can 
 	    # proceed to the next one. If a failed job exists this will never be 
 	    # possible
-	    if ( $main::analysis{ $next_logic_name }{ sync } ) { 
+	    if ( $analysis{ $next_logic_name }{ sync } ) { 
 	      
 
-	      $DB::single = 1 ;;
+	      $DB::single = 1;
 
 	      next if ( $no_restart );
 	      # we do not go further if new jobs has been started or is running.
@@ -1059,12 +1118,17 @@ sub run {
 	      next if (depends_on_active_jobs( $next_logic_name));
 	      
 	      my @depends_on;
-	      foreach my $analysis ( keys %main::flow ) {
-		push @depends_on, $analysis if ( $main::flow{ $analysis } eq $next_logic_name );
+	      foreach my $step ( keys %flow ) {
+		foreach my $analysis ( @{$flow{ $step}} ) {
+		  #print "$next_logic_name eq $analysis\n";
+		  push @depends_on, $step if ( $next_logic_name eq $analysis );
+		}
 	      }
 	      
 	      my @depend_jobs = fetch_jobs( @depends_on );
 	      
+	      #print "depends on" .Dumper( \@depends_on);
+	      #print "depend jobs" .Dumper( \@depend_jobs);
 	      my $all_threads_done = 1;
 	      foreach my $ljms_id ( @depend_jobs ) {
 		if ( $jms_hash{ $ljms_id }{ status } != $FINISHED ) {
@@ -1076,14 +1140,22 @@ sub run {
 	      if ( $all_threads_done ) {
 		# collect inputs, and set their tracking to 0
 		my @inputs; my @jms_ids;
+
+		
+		#print "hash " . Dumper( \%jms_hash );
+
 		foreach my $ljms_id ( @depend_jobs ) {
 		  $jms_hash{ $ljms_id }{ tracking } = 0;
 		  push @inputs, $jms_hash{ $ljms_id }{ output };
+		  print Dumper( $jms_hash{ $ljms_id } );
 		  push @jms_ids, $ljms_id;
 		}
 		
+		
 		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-		run_analysis( $next_logic_name, \@jms_ids, @inputs);
+		print "inputs: " . Dumper( \@inputs );
+
+		run_analysis( $next_logic_name, \@jms_ids, \@inputs);
 		$started++;
 	      }
 	      
@@ -1145,7 +1217,7 @@ sub run {
 sub run_analysis {
   my ( $logic_name, $pre_ids, @inputs) = @_;
 
-  my $function = function_module($main::analysis{ $logic_name }{ function }, $logic_name);
+  my $function = function_module($analysis{ $logic_name }{ function }, $logic_name);
 	
   $current_logic_name = $logic_name;
   $pre_jms_ids        = $pre_ids || undef;
@@ -1212,12 +1284,14 @@ sub function_module {
 sub print_flow {
   my (@start_logic_names) = @_;
 
-  die "EASIH::JMS::print_flow not called with a logic_name\n" if (! @start_logic_names);
+  @start_logic_names = @start_steps if ( !@start_logic_names );
+
+  die "EASIH::Pipeline::print_flow not called with a logic_name\n" if (! @start_logic_names);
 
   my @analyses;
 
   foreach my $start_logic_name ( @start_logic_names ) {
-    analysis_dependencies( $start_logic_name );
+    set_analysis_dependencies( $start_logic_name );
   }
 
   my @logic_names = @start_logic_names;
@@ -1232,11 +1306,11 @@ sub print_flow {
 
     push @analyses, $current_logic_name;
 
-    if ( ! $main::analysis{$current_logic_name} ) {
-      die "ERROR :::: No information on $current_logic_name in main::analysis\n";
+    if ( ! $analysis{$current_logic_name} ) {
+      die "ERROR :::: No information on $current_logic_name in analysis\n";
     }
     else {
-      my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+      my $function = function_module($analysis{$current_logic_name}{ function }, $current_logic_name);
       print "$current_logic_name ==>  $function\n";
     }
       
@@ -1246,7 +1320,7 @@ sub print_flow {
       
       foreach my $next_logic_name ( @next_logic_names ) {
       
-	if ($main::analysis{$next_logic_name}{ sync } ) {
+	if ($analysis{$next_logic_name}{ sync } ) {
 	  print "$current_logic_name --> $next_logic_name (Synced!!)\n";
 	}
 	else {
@@ -1277,7 +1351,7 @@ sub print_flow {
 sub validate_flow {
   my (@start_logic_names) = @_;
 
-  die "EASIH::JMS::validate_flow not called with a logic_name\n" if (! @start_logic_names);
+  die "EASIH::Pipeline::validate_flow not called with a logic_name\n" if (! @start_logic_names);
 
   my @analyses;
 
@@ -1291,11 +1365,11 @@ sub validate_flow {
 
     push @analyses, $current_logic_name;
 
-    if ( ! $main::analysis{$current_logic_name} ) {
-      die "ERROR :::: No information on $current_logic_name in main::analysis\n";
+    if ( ! $analysis{$current_logic_name} ) {
+      die "ERROR :::: No information on $current_logic_name in analysis\n";
     }
     else {
-      my $function = function_module($main::analysis{$current_logic_name}{ function }, $current_logic_name);
+      my $function = function_module($analysis{$current_logic_name}{ function }, $current_logic_name);
     }
       
     my @next_logic_names = next_analysis( $current_logic_name );
@@ -1304,7 +1378,7 @@ sub validate_flow {
       
       foreach my $next_logic_name ( @next_logic_names ) {
       
-	if ($main::analysis{$next_logic_name}{ sync } ) {
+	if ($analysis{$next_logic_name}{ sync } ) {
 	}
 	else {
 	}
@@ -1337,7 +1411,7 @@ sub store_state {
 
   $filename = freeze_file();
   
-  verbose("JMS :: Storing state in: '$filename'\n", 2);
+  verbose("EASIH::Pipeline :: Storing state in: '$filename'\n", 2);
 
   my $blob = {delete_files       => \@delete_files,
 	      jms_hash           => \%jms_hash,
@@ -1360,7 +1434,9 @@ sub store_state {
 	      #main file variables.
 	      argv               => \@argv,
 	      analysis_order     => \%analysis_order,
-	      dependencies       => \%dependencies};
+	      dependencies       => \%dependencies,
+              analysis           => \%analysis,
+	      flow               => \%flow};
 
   $last_save = Time::HiRes::gettimeofday();
 
@@ -1377,7 +1453,7 @@ sub restore_state {
   my ( $filename ) = @_;
 
   
-  verbose("JMS :: Re-storing state from: '$filename'\n", 2);
+  verbose("EASIH::Pipeline :: Re-storing state from: '$filename'\n", 2);
 
   my $blob = Storable::retrieve( $filename);
 

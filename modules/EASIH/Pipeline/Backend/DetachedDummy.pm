@@ -1,13 +1,13 @@
-package EASIH::JMS::Backend::DetachedDummy;
+package EASIH::Pipeline::Backend::DetachedDummy;
 
-use EASIH::JMS::Backend;
-use EASIH::JMS;
+use EASIH::Pipeline::Backend;
+use EASIH::Pipeline;
 
 use strict;
 use warnings;
 
 
-use base(qw(EASIH::JMS::Backend));
+use base(qw(EASIH::Pipeline::Backend));
 
 
 my %stats;
@@ -61,12 +61,12 @@ sub job_status {
   $status =~ s/\r//;
 
 
-  return $EASIH::JMS::FINISHED if ( $status eq "Done" );
-  return $EASIH::JMS::FAILED   if ( $status eq "Failed" );
-  return $EASIH::JMS::RUNNING  if ( $status eq "Running" );
+  return $EASIH::Pipeline::FINISHED if ( $status eq "Done" );
+  return $EASIH::Pipeline::FAILED   if ( $status eq "Failed" );
+  return $EASIH::Pipeline::RUNNING  if ( $status eq "Running" );
     
   
-  return $JMS::UNKNOWN;
+  return $EASIH::Pipeline::UNKNOWN;
 }
 
 

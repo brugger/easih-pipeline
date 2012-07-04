@@ -1,7 +1,7 @@
-package EASIH::JMS::Backend::Local;
+package EASIH::Pipeline::Backend::Local;
 
-use EASIH::JMS::Backend;
-use EASIH::JMS;
+use EASIH::Pipeline::Backend;
+use EASIH::Pipeline;
 
 use strict;
 use warnings;
@@ -12,7 +12,7 @@ use Time::HiRes;
 our %stats;
 
 
-use base qw(EASIH::JMS::Backend);
+use base qw(EASIH::Pipeline::Backend);
 
 
 my $max_jobs = 8;
@@ -39,6 +39,7 @@ sub stats {
 sub submit_job {
   my ($self, $cmd, $limit) = @_;
   
+  print "-->> $cmd\n";
 
   my $cpid = create_child( $cmd );
 
@@ -62,12 +63,12 @@ sub job_status {
 
 #  print "$kid == $status\n";
 
-  return $EASIH::JMS::RUNNING  if ( $kid == 0);
-  return $EASIH::JMS::FAILED   if ( $status != 0 );
+  return $EASIH::Pipeline::RUNNING  if ( $kid == 0);
+  return $EASIH::Pipeline::FAILED   if ( $status != 0 );
   $stats{ $kid }{ end } = Time::HiRes::gettimeofday if ( $kid );
-  return $EASIH::JMS::FINISHED if ( $status == 0 );
+  return $EASIH::Pipeline::FINISHED if ( $status == 0 );
   
-  return $JMS::UNKNOWN;
+  return $EASIH::Pipeline::UNKNOWN;
 }
 
 
@@ -81,7 +82,7 @@ sub create_child {
   } 
   else {
     die "cannot fork: $!" unless defined $pid;
-    system($command);
+    system("$command");
     
     exit 1 if ( $? );
     exit 0;

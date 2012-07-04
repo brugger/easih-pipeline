@@ -1,4 +1,4 @@
-package EASIH::JMS::Misc;
+package EASIH::Pipeline::Misc;
 #
 # Misc functions that does not fit anywhere else, but multiple scripts rely on. 
 # 
@@ -10,7 +10,7 @@ use strict;
 use warnings;
 use Data::Dumper;
 
-use EASIH::JMS;
+use EASIH::Pipeline;
 
 
 
