@@ -17,7 +17,7 @@ use EASIH::Pipeline::Backend;
 
 my $last_save      =   0;
 my $save_interval  = 300;
-my $verbose_level  =   20;
+my $verbose_level  =   0;
 my $max_retry      =   3;
 my $jobs_submitted =   0;
 my $sleep_time     =   5;
@@ -70,6 +70,20 @@ my %analysis;
 my %flow;
 
 my @start_steps;
+
+
+# 
+# 
+# 
+# Kim Brugger (04 Jul 2012)
+sub max_jobs {
+  my ($jobs) = @_;
+  
+  $max_jobs = $jobs if ( $jobs and $jobs =~ /^\d+\z/);
+
+  
+}
+
 
 # 
 # 
@@ -913,7 +927,6 @@ sub delete_tmp_files {
 sub fetch_jobs {
   my ( @logic_names ) = @_;
 
-  print " --> @logic_names \n";
 
   my @jobs;
   foreach my $jms_id ( fetch_jms_ids() ) {    
@@ -1147,13 +1160,12 @@ sub run {
 		foreach my $ljms_id ( @depend_jobs ) {
 		  $jms_hash{ $ljms_id }{ tracking } = 0;
 		  push @inputs, $jms_hash{ $ljms_id }{ output };
-		  print Dumper( $jms_hash{ $ljms_id } );
 		  push @jms_ids, $ljms_id;
 		}
 		
 		
 		verbose(" $jms_id :: $jms_hash{ $jms_id }{ logic_name }  --> $next_logic_name (synced !!!) $no_restart\n", 2);
-		print "inputs: " . Dumper( \@inputs );
+		#print "inputs: " . Dumper( \@inputs );
 
 		run_analysis( $next_logic_name, \@jms_ids, \@inputs);
 		$started++;
