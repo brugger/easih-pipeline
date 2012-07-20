@@ -43,7 +43,7 @@ sub submit_job {
 
   my $cpid = create_child( $cmd );
 
-  $stats{ $cpid }{start} = Time::HiRes::gettimeofday;
+  $stats{ $cpid }{ start } = Time::HiRes::gettimeofday;
   
   return $cpid;
 }
@@ -59,14 +59,14 @@ sub job_status {
 #  print "job_id == $job_id\n";
 
   my $kid = waitpid($job_id, WNOHANG);
-  my $status = $?;
+  my $status = $? ;
 
-#  print "$kid == $status\n";
+  print "$job_id $kid == $status\n";
 
   return $EASIH::Pipeline::RUNNING  if ( $kid == 0);
-  return $EASIH::Pipeline::FAILED   if ( $status != 0 );
   $stats{ $kid }{ end } = Time::HiRes::gettimeofday if ( $kid );
   return $EASIH::Pipeline::FINISHED if ( $status == 0 );
+  return $EASIH::Pipeline::FAILED   if ( $status != 0 );
   
   return $EASIH::Pipeline::UNKNOWN;
 }
@@ -82,10 +82,26 @@ sub create_child {
   } 
   else {
     die "cannot fork: $!" unless defined $pid;
-    system("$command");
+
+    # eval { system "$command" };
+    # print "$pid --> $@\n";
+
+    # if ( ! $@ ) {
+    #   exit 0;
+    # }
+    # else {
+    #   verbose("$@\n", 1);
+    #   exit 1;
+    # }
+
+     system("$command");
+
+     my $status = $?;	
+
+     print "$pid ==> $? $status\n";
     
-    exit 1 if ( $? );
-    exit 0;
+     exit 1 if ( $status );
+     exit 0;
   }
   
   return $pid;
