@@ -689,7 +689,7 @@ sub mail_report {
 
   $subject = "$subject (Error)" if ( $no_restart );
 
-  open(my $mail, " | mail $to -s '[easih-pipeline] $subject'") || die "Could not open mail-pipe: $!\n";
+  open(my $mail, " | mail -s '[easih-pipeline] $subject'  $to") || die "Could not open mail-pipe: $!\n";
 
   if ( $no_restart ) {
     print $mail "ERROR :: The pipeline was unsucessful with $no_restart jobs not being able to finish\n";
