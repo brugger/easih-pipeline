@@ -1,4 +1,4 @@
-package EASIH::Pipeline::Backend::Local;
+package EASIH::Pipeline::Backend::MPIexec;
 
 use EASIH::Pipeline::Backend;
 use EASIH::Pipeline;
@@ -11,13 +11,12 @@ use Time::HiRes;
 
 our %stats;
 
+my $i = 1;
 
 use base qw(EASIH::Pipeline::Backend);
 
 
 my $max_jobs = 8;
-my @running_jobs;
-my @waiting_jobs;
 
 
 # 
@@ -41,9 +40,19 @@ sub submit_job {
   
   print "-->> $cmd\n";
 
-  my $cpid = create_child( $cmd );
+  use Sys::Hostname;
+  my $host = hostname;
 
-  $stats{ $cpid }{ start } = Time::HiRes::gettimeofday;
+  my $error_file  = " $host.$i";
+
+  $i++;
+
+#  $cmd = "mpiexec -comm none -n 1 $cmd 2> $error_file";
+#  $cmd = "mpiexec -comm none -n 1 $cmd ";
+  my $command = "mpiexec -comm none -n 1 $cmd ";
+  my $cpid = create_child( $command );
+
+  $stats{ $cpid }{start} = Time::HiRes::gettimeofday;
   
   return $cpid;
 }
@@ -59,14 +68,14 @@ sub job_status {
 #  print "job_id == $job_id\n";
 
   my $kid = waitpid($job_id, WNOHANG);
-  my $status = $? ;
+  my $status = $?;
 
-  print "$job_id $kid == $status\n";
+  print "$job_id -- $kid == $status\n";
 
-  return $EASIH::Pipeline::RUNNING  if ( $kid == 0);
-  $stats{ $kid }{ end } = Time::HiRes::gettimeofday if ( $kid );
-  return $EASIH::Pipeline::FINISHED if ( $status == 0 );
   return $EASIH::Pipeline::FAILED   if ( $status != 0 );
+  return $EASIH::Pipeline::RUNNING  if ( $kid == 0);
+  $stats{ $kid }{ end } = Time::HiRes::gettimeofday;
+  return $EASIH::Pipeline::FINISHED if ( $status == 0 );
   
   return $EASIH::Pipeline::UNKNOWN;
 }
@@ -82,26 +91,10 @@ sub create_child {
   } 
   else {
     die "cannot fork: $!" unless defined $pid;
-
-    # eval { system "$command" };
-    # print "$pid --> $@\n";
-
-    # if ( ! $@ ) {
-    #   exit 0;
-    # }
-    # else {
-    #   verbose("$@\n", 1);
-    #   exit 1;
-    # }
-
-     system("$command");
-
-     my $status = $?;	
-
-     print "$pid ==> $? $status\n";
+    system("$command");
     
-     exit 1 if ( $status );
-     exit 0;
+    exit 1 if ( $? );
+    exit 0;
   }
   
   return $pid;
