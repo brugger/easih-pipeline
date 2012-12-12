@@ -79,7 +79,7 @@ my @start_steps;
 sub max_jobs {
   my ($jobs) = @_;
   
-  $max_jobs = $jobs if ( $jobs and $jobs =~ /^\d+\z/);
+  $max_jobs = $jobs if ( $jobs and ( $jobs =~ /^\d+\z/ || $jobs == -1));
 
   
 }
@@ -549,6 +549,88 @@ sub fetch_active_jms_ids {
   return fetch_jms_ids(1);
 }
 
+
+my $spin_count = 0;
+
+# 
+# 
+# 
+# Kim Brugger (27 Nov 2012)
+sub spinner {
+  
+  
+
+  my @spin = ('|', '/', '-','\\','|', '/','-','\\');
+  my @spin2 = (">))'>",
+	       "    >))'>",
+	       "        >))'>",
+	       "            >))'>",
+	       "            <'((<",
+	       "        <'((<",
+	       "    <'((<",
+	       "<'((<");
+	      
+
+  my @use_spin = @spin;
+  @use_spin = @spin2;
+
+  $spin_count++;
+  return $use_spin[ int($spin_count % int( @use_spin))];
+  
+}
+
+
+
+# 
+# 
+# 
+# Kim Brugger (24 Jun 2010)
+sub report_spinner {
+
+  my %res = ();
+
+  foreach my $jms_id ( fetch_jms_ids() ) {
+    my $logic_name = $jms_hash{ $jms_id }{ logic_name};
+    my $status     = $jms_hash{ $jms_id }{ status }; 
+    $res{ $logic_name }{ $status }++;
+    $res{ $logic_name }{ failed } += ($jms_hash{ $jms_id }{ failed } || 0);
+
+    my $job_id     = $jms_hash{ $jms_id }{ job_id }; 
+   
+    if ( $job_id != -1 ) {
+      my $memory = $backend->job_memory( $job_id ) || 0;
+      $res{ $logic_name }{ memory } = $memory if ( !$res{ $logic_name }{ memory } || $res{ $logic_name }{ memory } < $memory);
+      $res{ $logic_name }{ runtime } += $backend->job_runtime( $job_id ) || 0;
+    }
+  }
+
+  return if ( keys %res == 0);
+
+  my $report = get_timestamp(). "Run statistics:   ||  Runtime   ||  MaxMemory ||  D  R  Q  F  U\n";
+
+  my @logic_names = sort {$analysis_order{ $a } <=> $analysis_order{ $b } } keys %res;
+  
+  for (my $i = 0; $i < @logic_names; $i++) {
+    my $logic_name = $logic_names[$i];
+    my $queue_stats;
+
+    $queue_stats .= sprintf("%02d/%02d/",($res{ $logic_name }{ $FINISHED } || 0),($res{ $logic_name }{ $RUNNING  } || 0));
+    my $sub_other = ($res{ $logic_name }{ $QUEUEING  } || 0);
+    $sub_other += ($res{ $logic_name }{ $RESUBMITTED  } || 0);
+    $sub_other += ($res{ $logic_name }{ $SUBMITTED  } || 0);
+    $queue_stats .= sprintf("%02d/%02d/%02d",$sub_other, ($res{ $logic_name }{ failed  } || 0),($res{ $logic_name }{ $UNKNOWN  } || 0));
+
+    my $spinner = "";
+    if ( $i == @logic_names - 1) {
+      $spinner = spinner();
+    }
+
+    $report .= sprintf("%-17s ||  %8s  || %10s || $queue_stats\t$spinner\n", $logic_name,
+		       format_time($res{ $logic_name }{ runtime }), format_memory($res{ $logic_name }{ memory }));
+  }
+
+  return $report;
+}
 
 
 # 
@@ -1199,7 +1281,9 @@ sub run {
 
 
     check_n_store_state();
-    print report();
+#    system('clear');
+    print report_spinner();
+#    print report();
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
