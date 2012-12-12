@@ -98,7 +98,7 @@ sub create_child {
 
      my $status = $?;	
 
-     print "$pid ==> $? $status\n";
+#     print "$pid ==> $? $status\n";
     
      exit 1 if ( $status );
      exit 0;
@@ -116,8 +116,13 @@ sub create_child {
 sub job_runtime {
   my ($self, $job_id ) = @_;
 
+  my $runtime = $stats{$job_id}{end} || Time::HiRes::gettimeofday;
+  $runtime -= $stats{$job_id}{start};
+  
+  return $runtime;
+
   return 0 if ( !$stats{$job_id}{end} || ! $stats{$job_id}{start});
-  my $runtime = $stats{$job_id}{end} - $stats{$job_id}{start};
+  $runtime = $stats{$job_id}{end} - $stats{$job_id}{start};
   return $runtime;
 }
 
