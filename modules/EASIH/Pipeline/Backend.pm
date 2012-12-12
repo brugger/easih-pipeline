@@ -4,7 +4,7 @@ use EASIH::Pipeline::Backend::DetachedDummy;
 use EASIH::Pipeline::Backend::Local;
 use EASIH::Pipeline::Backend::Darwin;
 #use EASIH::Pipeline::Backend::MPIexec;
-#use EASIH::Pipeline::Backend::SGE;
+use EASIH::Pipeline::Backend::SGE;
 
 use strict;
 use warnings;
