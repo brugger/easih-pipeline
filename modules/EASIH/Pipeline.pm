@@ -29,6 +29,7 @@ my @argv; # the argv from main is fetched at load time, and a copy kept here so 
 my $freeze_file;
 
 my $no_restart     =   0; # failed jobs that cannot be restarted. 
+my $restarted_run  =   0;
 
 # default dummy hive that will fail gracefully, and the class that every other hive
 # should inherit from.
@@ -901,6 +902,8 @@ sub hard_reset {
     }
 
   }
+
+  $restarted_run = 1;
 }
 
 # soft-reset... 
@@ -938,8 +941,9 @@ sub reset {
       #$jms_hash{ $jms_id }{ tracking } = 1;
       next;
     }
-
   }
+
+  $restarted_run = 1;
 }
 
 
@@ -1169,8 +1173,8 @@ sub run {
 
 #    print Dumper( \@active_jobs );
     
-    # nothing running, start from the start_logic_names
-    if ( ! @active_jobs ) {
+    # Not a restarted run, run everything from the start.
+    if ( ! $restarted_run ) {
       foreach my $start_logic_name ( @start_logic_names ) {
         run_analysis( $start_logic_name );
 	$running++;
