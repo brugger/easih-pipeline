@@ -3,6 +3,7 @@ package EASIH::JMS::Backend;
 use EASIH::JMS::Backend::DetachedDummy;
 use EASIH::JMS::Backend::Local;
 use EASIH::JMS::Backend::Darwin;
+use EASIH::JMS::Backend::SGE;
 
 use strict;
 use warnings;
