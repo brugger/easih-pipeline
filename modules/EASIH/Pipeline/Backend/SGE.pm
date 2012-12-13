@@ -28,10 +28,10 @@ sub stats {
 sub submit_job {
   my ($self, $cmd, $limit) = @_;
 
-#  print "-->>> cd $EASIH::Pipeline::cwd; $cmd \n";
+  $limit = "-l $limit" if ( $limit && $limit ne "");
+  $limit ||= "";
 
-  print "-->> $cmd\n";
-
+  print "--]] $cmd ( $limit )\n";
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
   $tmp_file .= ".sge";
@@ -114,7 +114,6 @@ sub job_status {
   if (defined $res{'exit_status'}) {
     $stats{ $job_id }{ 'runtime' } = $res{'ru_wallclock'};
     $stats{ $job_id }{ 'memory' } = $res{'maxvmem'};
-    $stats{ $job_id }{ 'memory' } =~ s/\.//;
     if ($stats{ $job_id }{ 'memory' } =~ /G/) {
       $stats{ $job_id }{ 'memory' } =~ s/G//;
       $stats{ $job_id }{ 'memory' } *= 1000000000;

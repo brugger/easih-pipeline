@@ -326,7 +326,7 @@ sub cwd {
 # 
 # Kim Brugger (05 Jul 2010)
 sub submit_system_job {
-  my ($cmd, $output) = @_;
+  my ($cmd, $output, $limit) = @_;
   submit_job($cmd, $output, 1);
 }
 
@@ -336,7 +336,7 @@ sub submit_system_job {
 # 
 # Kim Brugger (22 Apr 2010)
 sub submit_job {
-  my ($cmd, $output, $system) = @_;
+  my ($cmd, $output, $limit, $system) = @_;
 
   if ( ! $cmd ) {
      Carp::confess(" no cmd given\n");
@@ -360,6 +360,7 @@ sub submit_job {
 		   tracking    => 1,
 		   command     => $cmd,
 		   output      => $output,
+		   limit       => $limit,
 		   logic_name  => $current_logic_name,
 		   pre_jms_ids => $pre_jms_ids};
 
@@ -377,7 +378,7 @@ sub submit_job {
   }
   else {
 
-    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $analysis{$current_logic_name}{ hpc_param });
+    my $job_id = $backend->submit_job( "cd $cwd;$cmd", $limit);
 #    my $job_id = $backend->submit_job( "cd $cwd;$cmd", "-NEP-fqs -l nodes=1:ppn=1,mem=2500mb,walltime=00:59:00");
     
     $$instance{ job_id } = $job_id;
@@ -405,8 +406,7 @@ sub resubmit_job {
   my $instance   = $jms_hash{ $jms_id };
   my $logic_name = $$instance{logic_name};
 
-
-  my $job_id = $backend->submit_job( $$instance{ command }, $analysis{$logic_name}{ hpc_param });
+  my $job_id = $backend->submit_job( $$instance{ command }, $$instance{ limit });
   
   $$instance{ job_id }   = $job_id;
   $$instance{ status }   = $RESUBMITTED;
@@ -1174,7 +1174,7 @@ sub run {
 #    print Dumper( \@active_jobs );
     
     # Not a restarted run, run everything from the start.
-    if ( ! $restarted_run ) {
+    if ( ! @active_jobs && ! $restarted_run ) {
       foreach my $start_logic_name ( @start_logic_names ) {
         run_analysis( $start_logic_name );
 	$running++;
@@ -1286,8 +1286,8 @@ sub run {
 
     check_n_store_state();
 #    system('clear');
-    print report_spinner();
-#    print report();
+#    print report_spinner();
+    print report();
     last if ( ! $running && ! $started && !@retained_jobs);
 
     sleep ( $sleep_time );
