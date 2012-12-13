@@ -30,10 +30,12 @@ sub submit_job {
 
 #  print "-->>> cd $EASIH::Pipeline::cwd; $cmd \n";
 
+  print "-->> $cmd\n";
+
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
   $tmp_file .= ".sge";
-  open (my $qpipe, " | qsub -cwd -S /bin/sh  > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
+  open (my $qpipe, " | qsub -cwd -S /bin/sh $limit > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $EASIH::Pipeline::cwd; $cmd";
   close( $qpipe );
   
@@ -73,7 +75,8 @@ sub job_status {
   use XML::Simple;
 
   my $xml;
-  open (my $qspipe, "qstat -f -j $job_id -xml 2> /dev/null | ") || die "Could not open 'qstat1-pipeline': $!\n";
+  open (my $qspipe, "qstat -s z -f -j $job_id -xml 2> /dev/null | ") || die "Could not open 'qstat1-pipeline': $!\n";
+#  open (my $qspipe, "qacct -j $job_id -xml 2> /dev/null | ") || die "Could not open 'qstat1-pipeline': $!\n";
   $xml = join("", <$qspipe>);
   close( $qspipe );
 
@@ -105,12 +108,17 @@ sub job_status {
   close ($qspipe);
 
 #  use Data::Dumper;
-#  print Dumper( \%res ) if ( %res );
+#  print STDERR Dumper( \%res ) if ( %res );
 
 
   if (defined $res{'exit_status'}) {
     $stats{ $job_id }{ 'runtime' } = $res{'ru_wallclock'};
     $stats{ $job_id }{ 'memory' } = $res{'maxvmem'};
+    $stats{ $job_id }{ 'memory' } =~ s/\.//;
+    if ($stats{ $job_id }{ 'memory' } =~ /G/) {
+      $stats{ $job_id }{ 'memory' } =~ s/G//;
+      $stats{ $job_id }{ 'memory' } *= 1000000000;
+    }    
     if ($stats{ $job_id }{ 'memory' } =~ /M/) {
       $stats{ $job_id }{ 'memory' } =~ s/M//;
       $stats{ $job_id }{ 'memory' } *= 1000000;
