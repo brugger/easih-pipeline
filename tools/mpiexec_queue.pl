@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 # 
-# Program that can take a list programs to be run and run them 
-# parallel on descent computers.
 # 
-# Nicked and adapted from old cph code.
+# 
+# 
+# 
 #
 # Kim Brugger (30 Nov 2010), contact: kim.brugger@easih.ac.uk
 
@@ -64,8 +64,7 @@ while( <$in>) {
 }  
 close $in;
 
-open ( *STDERR, ">$infile") || die "Could not open '$infile': $!\n";
-
+open ( *STDERR, ">$infile.returns") || die "Could not open '$infile': $!\n";
 foreach my $c ( @completed ) {
   print STDERR "$c\n";
 }
@@ -148,6 +147,7 @@ foreach my $c ( @commands ) {
   print STDERR "-1\t$c\n";
 }
 
+
 #print STDERR "Done ... \n";
 
 exit $failed;
@@ -180,6 +180,8 @@ sub create_child {
   } 
   else {
     die "cannot fork: $!" unless defined $pid;
+
+    sleep(int(rand(30)+10));
 
     # if the process crashes, run it again, with a limit of 2 times...
     system($command);

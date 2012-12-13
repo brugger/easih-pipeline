@@ -19,8 +19,15 @@ while (<$in>) {
   $blob .= $_;
 }
 $blob =~ s/^\$VAR\d+\s*=\s*//;
+$blob =~ s/;\Z//;
 
-print ( $blob );
-$blob = eval {$blob};
-print Dumper( $blob );
-#Storable::store($blob, $freezefile);
+#print ( $blob );
+my $href =  eval{ $blob};
+
+print Dumper( $href );
+
+print "$$href{ sleep_time } \n";
+#print "---------------------------------------\n";
+#print Dumper( \%blob );
+
+#Storable::store(\%blob, $freezefile);

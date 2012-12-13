@@ -35,6 +35,7 @@ sub submit_job {
 
   my ($tmp_fh, $tmp_file) = File::Temp::tempfile(DIR => "./tmp" );
   $tmp_file .= ".darwin";
+#  $limit = "-NEP-fqs -l nodes=1:ppn=4,mem=8gb,walltime=00:45:00";
   open (my $qpipe, " | qsub $limit > $tmp_file 2> /dev/null ") || die "Could not open qsub-pipe: $!\n";
   print $qpipe "cd $EASIH::JMS::cwd; $cmd";
   close( $qpipe );
@@ -52,7 +53,7 @@ sub submit_job {
     $job_id =~ s/(\d+?)\..*/$1/;
   }
   
-  system "rm $tmp_file" if ( $job_id != -100 );
+  system "rm $tmp_file" if ( $job_id != -100);
   
   return $job_id;
 }

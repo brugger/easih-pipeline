@@ -1012,7 +1012,8 @@ sub run {
     my @active_jobs = fetch_active_jms_ids();
        
 
-#    print Dumper( \@active_jobs );
+#    print STDERR Dumper( \@active_jobs );
+#    exit;
     
     # nothing running, start from the start_logic_names
     if ( ! @active_jobs ) {
@@ -1025,6 +1026,10 @@ sub run {
       @start_logic_names = ();
     }
     else {
+	
+	# We are not running from the start_logic_names, so  it is reset so we dont start from there later.
+      @start_logic_names = ();
+
 
       foreach my $jms_id ( @active_jobs ) {
 
@@ -1074,10 +1079,17 @@ sub run {
 	      
 	      if ( $all_threads_done ) {
 		# collect inputs, and set their tracking to 0
-		my @inputs; my @jms_ids;
+		my @inputs; 
+		my @jms_ids;
 		foreach my $ljms_id ( @depend_jobs ) {
 		  $jms_hash{ $ljms_id }{ tracking } = 0;
-		  push @inputs, $jms_hash{ $ljms_id }{ output };
+		  print "REF::". ref($jms_hash{ $ljms_id }{ output }) . "\n";
+		  if (ref($jms_hash{ $ljms_id }{ output }) eq "ARRAY") {
+		    push @inputs, @{$jms_hash{ $ljms_id }{ output }};
+		  }
+		  else {
+		    push @inputs, $jms_hash{ $ljms_id }{ output };
+		  }
 		  push @jms_ids, $ljms_id;
 		}
 		
