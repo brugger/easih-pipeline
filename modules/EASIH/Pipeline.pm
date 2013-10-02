@@ -327,7 +327,7 @@ sub cwd {
 # Kim Brugger (05 Jul 2010)
 sub submit_system_job {
   my ($cmd, $output, $limit) = @_;
-  submit_job($cmd, $output, 1);
+  submit_job($cmd, $output, $limit, 1);
 }
 
 
@@ -343,14 +343,14 @@ sub submit_job {
   }
 
   if (@retained_jobs && $max_jobs > 0 && $max_jobs > $jobs_submitted) {
-    push @retained_jobs, [ $cmd, $output, $current_logic_name];
+    push @retained_jobs, [ $cmd, $output, $limit, $system, $current_logic_name];
     my $params = shift @retained_jobs;
     verbose("Queued/unqueued a job ( ". @retained_jobs . " jobs retained)\n", 20);
     ($cmd, $output, $current_logic_name)= (@$params);
     verbose(" PARAMS :::     ($cmd, $output, $current_logic_name) \n", 20);
   }
   elsif ($max_jobs > 0 && $max_jobs <= $jobs_submitted ) {
-    push @retained_jobs, [ $cmd, $output, $current_logic_name];
+    push @retained_jobs, [ $cmd, $output, $limit, $system, $current_logic_name];
     verbose("Retained a job ( ". @retained_jobs . " jobs retained)\n", 20);
     return;
   };
@@ -369,11 +369,11 @@ sub submit_job {
     eval { system "$cmd" };
     $$instance{ job_id } = -1;
     if ( ! $@ ) {
-      $$instance{ status   } = $FINISHED;
+      $$instance{ status } = $FINISHED;
     }
     else {
       verbose("$@\n", 1);
-      $$instance{ status   } = $FAILED;
+      $$instance{ status } = $FAILED;
     }
   }
   else {
@@ -1316,6 +1316,8 @@ sub run {
 # Kim Brugger (18 May 2010)
 sub run_analysis {
   my ( $logic_name, $pre_ids, @inputs) = @_;
+
+#  $DB::single = 1;
 
   my $function = function_module($analysis{ $logic_name }{ function }, $logic_name);
 	
